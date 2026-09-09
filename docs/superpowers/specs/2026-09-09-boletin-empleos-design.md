@@ -157,8 +157,48 @@ class FuenteEmpleo(Protocol):
 RemoteOK `0.70`.
 
 **Notas por adaptador**
-- **SPE** — mayor incógnita técnica. El portal es HTML; hay que ubicar la petición XHR que alimenta los
-  resultados, o usar el portal de datos abiertos. Es el primer riesgo a despejar (§13).
+- **SPE** — ✅ **resuelto el 9 de septiembre de 2026.** API JSON pública, sin autenticación:
+
+  **Base:** `https://www.buscadordeempleo.gov.co/backbue/v1`
+
+  | Endpoint | Uso |
+  |---|---|
+  | `GET /version` | `{"backVersion":"2.4.0"}` — verificación de contrato |
+  | `GET /vacantes/date` | `{"max_date":"..."}` — fecha del último cargue |
+  | `GET /filters` | catálogos: `rangoSalarial`, `prestador`, `tipoContrato`, `nivelDeEstudios` |
+  | `GET /vacantes/resultados?page=N&<filtros>` | **búsqueda principal**, 50 por página |
+
+  Respuesta: `{resultados[], totalPages, currentPage, total_registros, total, total_departments, total_municipios}`
+
+  **Campos por vacante:** `CODIGO_VACANTE`, `TITULO_VACANTE`, `DESCRIPCION_VACANTE`, `NIVEL_ESTUDIOS`,
+  `RANGO_SALARIAL`, `DEPARTAMENTO`, `MUNICIPIO`, `TIPO_CONTRATO`, `CANTIDAD_VACANTES`, `CARGO`,
+  `FECHA_VENCIMIENTO`, `SECTOR_ECONOMICO`, `TELETRABAJO`, `DISCAPACIDAD`, `MESES_EXPERIENCIA_CARGO`,
+  `HIDROCARBUROS`, `PLAZA_PRACTICA`, `FECHA_PUBLICACION`, `BUSQUEDA`, `DETALLES_PRESTADOR`.
+
+  **Es más rico de lo previsto y simplifica dos filtros del núcleo:**
+  - `FECHA_VENCIMIENTO` da la caducidad declarada por el empleador — no hay que estimarla.
+  - `MESES_EXPERIENCIA_CARGO` vuelve el filtro de seniority numérico en vez de heurístico.
+  - `PLAZA_PRACTICA` separa prácticas de empleo real (nuestra audiencia son egresados: se excluyen).
+  - `TELETRABAJO` da la modalidad sin inferirla del texto.
+
+  **Parámetros verificados:** `page` ✅ · `departamento` ✅ · `teletrabajo=1` ✅ · `cargo` ✅
+  (coincidencia **exacta** sobre texto libre del empleador, no búsqueda parcial).
+  Rechazados: `nivelDeEstudios`, `fechaPublicacion`, `experiencia`, `municipio`, `q`, `search`.
+
+  **Codificación:** UTF-8 correcto y bien declarado. Verificado a nivel de bytes (`Ã­` = `í`).
+  No requiere tratamiento especial.
+
+  **Estrategia de descarga** (volúmenes medidos el 9/09/2026; total nacional: 258.967 vacantes):
+
+  | Consulta | Registros | Páginas |
+  |---|---|---|
+  | `teletrabajo=1` — remoto nacional | 1.829 | 39 |
+  | `departamento=Quindio` — mercado local | 1.476 | 31 |
+  | `cargo=<lista curada>` — alcance nacional dirigido | ~200 | ~15 |
+
+  Total ≈ **85 peticiones por ejecución**, holgado para una corrida quincenal.
+  Se descartan barridos por departamento grande: Antioquia son 1.319 páginas y Valle del Cauca 405.
+  El filtrado de relevancia ocurre **del lado nuestro**, no en la consulta.
 - **Magneto** — parsing HTML con `selectolax` sobre rutas canónicas listadas en su `llms.txt`
   (`/co/trabajos/buscar`, `/co/trabajos/ofertas-empleo-trabajo-remoto`, y ciudades). **Nunca con query string.**
 - **Remotive** — `GET /api/remote-jobs?category=software-dev`. Vacantes con 24 h de retraso por diseño suyo.
@@ -301,7 +341,8 @@ vez de bloquear sin más.
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| **El SPE no expone un endpoint utilizable** | Alto — se pierde la mejor fuente colombiana | Despejarlo **primero**, antes de escribir el resto. Plan B: apoyarse en Magneto y reconsiderar el permiso escrito a elempleo |
+| ~~El SPE no expone un endpoint utilizable~~ | — | ✅ **Cerrado el 9/09/2026.** API pública verificada y documentada en §7 |
+| **El SPE cambia su API sin aviso** (no es pública ni versionada contractualmente) | Medio | `GET /version` en cada corrida; si `backVersion` cambia, alertar. Tests de contrato sobre fixtures |
 | **TI no entrega credenciales SMTP** | Alto — no hay entrega | Plan B: cuenta de aplicación con contraseña de aplicación; o Brevo con verificación de dominio (también requiere TI) |
 | **Magneto cambia su HTML** | Medio | Tests de contrato; `selectolax` con selectores tolerantes; considerar Scrapling (parsing adaptativo) si se vuelve inestable |
 | **Volumen bajo de vacantes junior en Colombia** | Medio — boletines flacos | Medir en la primera ejecución real; ampliar el radio geográfico o relajar el filtro de seniority |
