@@ -1687,11 +1687,16 @@ excluidos = [
 # de enumerarlas.
 #
 # Esta lista es solo para los casos en que la morfología acierta pero el resultado
-# colisiona igual. Hoy hay uno:
-sin_flexion = [
-  "conductor",  # es sustantivo de agente, pero "conductores" también son cables:
-                # excluiría ofertas legítimas de hardware o sistemas embebidos
-]
+# colisiona igual, y SOLO surte efecto sobre `cargos` y `tecnologias`: sobre
+# `excluidos` se ignora a propósito, porque ahí negar la flexión abre agujeros en
+# vez de cerrarlos.
+#
+# Hoy está vacía. `conductor` estuvo aquí y hubo que sacarlo: vive en `excluidos`,
+# así que negarle la flexión dejaba pasar "Conductores"/"Conductora con manejo de
+# app Android" —ofertas de repartidor, altísima frecuencia en Colombia— mientras
+# seguía excluyendo el singular. El riesgo que lo justificaba (una oferta de
+# firmware que mencione "conductores eléctricos") es mucho menos frecuente.
+sin_flexion = []
 
 [experiencia]
 # Descartan por exigir un nivel de experiencia demasiado alto.
@@ -2010,20 +2015,23 @@ def test_negar_la_flexion_no_es_negar_el_termino():
     assert puntuar_relevancia(_oferta("Ingeniero Angular"), vocabulario) > 0.35
 
 
-def test_sin_flexion_cubre_el_agente_que_colisiona_igual():
-    """`conductor` es sustantivo de agente, pero "conductores" también son cables."""
+@pytest.mark.parametrize(
+    "titulo",
+    ["Conductor con manejo de App", "Conductores con manejo de App", "Conductora con manejo de App"],
+)
+def test_sin_flexion_no_debilita_la_lista_de_excluidos(titulo):
+    """`sin_flexion` no puede aplicarse a `excluidos`: ahí abre agujeros.
+
+    Negar la flexión estrecha el emparejamiento. En una lista de inclusión eso
+    reduce falsos positivos; en una de exclusión reduce las exclusiones. Con
+    `conductor` en `sin_flexion`, el singular se excluía y el plural se colaba.
+    """
     vocabulario = Vocabulario(
-        cargos=["desarrollador"],
-        tecnologias=["python"],
+        cargos=["android"],
         excluidos=["conductor"],
-        sin_flexion=["conductor"],
+        sin_flexion=["conductor"],  # se declara, pero sobre `excluidos` debe ignorarse
     )
-    # Una oferta de embebidos que mencione conductores eléctricos NO debe anularse.
-    puntaje = puntuar_relevancia(
-        _oferta("Desarrollador de firmware", "Diseño de conductores eléctricos en Python."),
-        vocabulario,
-    )
-    assert puntaje > 0.35
+    assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
 
 
 def test_termino_excluido_anula_la_relevancia():
@@ -2215,9 +2223,19 @@ def puntuar_relevancia(
     sin_flexion = {normalizar_texto(s) for s in vocabulario.sin_flexion}
 
     def flexionable(termino: str) -> bool:
+        """`sin_flexion` solo aplica a las listas de INCLUSIÓN, nunca a `excluidos`.
+
+        Negar la flexión estrecha el emparejamiento, y esa asimetría importa:
+        en `cargos` y `tecnologias` estrechar reduce falsos positivos, que es lo
+        que se busca; en `excluidos` estrechar reduce las EXCLUSIONES, es decir
+        aumenta los falsos positivos. Con `conductor` en `sin_flexion`,
+        "Conductor" se excluía pero "Conductores" y "Conductora" se colaban.
+        """
         return normalizar_texto(termino) not in sin_flexion
 
-    if any(contiene(completo, e, flexionable(e)) for e in vocabulario.excluidos):
+    # La lista de exclusión se empareja SIEMPRE con flexión: una exclusión de más
+    # es ruido menos en el boletín; una exclusión de menos es basura dentro.
+    if any(contiene(completo, e) for e in vocabulario.excluidos):
         return 0.0
 
     terminos = vocabulario.cargos + vocabulario.tecnologias
