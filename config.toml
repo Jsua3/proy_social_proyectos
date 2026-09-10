@@ -1,0 +1,60 @@
+# Configuración del boletín de empleos.
+# Se puede ajustar sin tocar código Python.
+
+destinatarios = ["coorproyeccioning@cue.edu.co"]
+remitente = "coorproyeccioning@cue.edu.co"
+asunto = "Boletín de empleos — Ingeniería de Software"
+
+umbral_relevancia = 0.35
+dias_max_antiguedad = 30
+max_meses_experiencia = 60      # 5 años: por encima se considera senior
+excluir_practicas = true        # la audiencia son egresados, no practicantes
+
+[vocabulario]
+cargos = [
+  "desarrollador", "developer", "programador", "ingeniero de software",
+  "ingeniero de sistemas", "analista de sistemas", "analista de desarrollo",
+  "backend", "back end", "frontend", "front end", "full stack", "fullstack",
+  "qa", "tester", "automatizacion de pruebas", "devops", "sre",
+  "ingeniero de datos", "data engineer", "desarrollador movil", "android", "ios",
+  "arquitecto de software", "soporte de aplicaciones",
+]
+tecnologias = [
+  "java", "python", "javascript", "typescript", "react", "angular", "vue",
+  "node", ".net", "c#", "php", "spring", "django", "laravel", "flutter",
+  "sql", "postgresql", "mysql", "mongodb", "docker", "kubernetes",
+  "aws", "azure", "git", "api rest", "microservicios",
+]
+# Términos que descalifican aunque haya coincidencias tecnológicas.
+excluidos = [
+  "vendedor", "asesor comercial", "call center", "domiciliario",
+  "auxiliar de bodega", "mesero", "vigilante", "conductor",
+]
+
+[experiencia]
+# Descartan por exigir un nivel de experiencia demasiado alto.
+# Son datos, no simbolos: coinciden con el texto real de las ofertas.
+terminos_excluidos = [
+  "senior", "sr.", "lead", "lider tecnico", "líder técnico", "arquitecto jefe",
+  "jefe de", "gerente", "director", "head of", "principal", "staff engineer",
+  "coordinador de desarrollo",
+]
+
+[legitimidad]
+min_caracteres_descripcion = 200
+salario_minimo_legal = 1_623_500          # SMLV Colombia 2026
+salario_maximo_razonable = 25_000_000     # tope para perfil junior/semi-senior
+
+# Descarte inmediato.
+frases_descarte = [
+  "inversion inicial", "inversión inicial", "pago de inscripcion",
+  "pago de inscripción", "debes pagar", "kit de trabajo", "compra tu kit",
+  "pago de tramites", "pago de trámites", "curso obligatorio con costo",
+]
+# Penalización fuerte.
+frases_sospechosas = [
+  "altos ingresos", "ingresos ilimitados", "gana desde casa",
+  "sin experiencia gana", "cupos limitados", "ganancias inmediatas",
+  "independencia financiera", "solo por whatsapp", "escribe al whatsapp",
+]
+dominios_sospechosos = ["bit.ly", "tinyurl.com", "cutt.ly", "acortar.link", "t.me"]
