@@ -1127,7 +1127,10 @@ _NUMERO = re.compile(r"\$?\s*([\d.]{4,})")
 
 
 def _rango_salarial(texto: str | None) -> tuple[int | None, int | None]:
-    """Interpreta los rangos del SPE: '$1.000.001 - $1.500.000', 'Mayor de $15.000.001', 'A Convenir'."""
+    """Interpreta los rangos del SPE.
+
+    Formatos reales: '$1.000.001 - $1.500.000', 'Mayor de $15.000.001', 'A Convenir'.
+    """
     if not texto:
         return (None, None)
     numeros = [int(n.replace(".", "")) for n in _NUMERO.findall(texto)]
