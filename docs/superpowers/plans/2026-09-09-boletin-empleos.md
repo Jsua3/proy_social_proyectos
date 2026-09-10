@@ -362,7 +362,6 @@ Expected: FAIL con `ModuleNotFoundError: No module named 'boletin_empleos.fuente
 import logging
 import time
 from collections.abc import Callable
-from typing import TypeVar
 
 import httpx
 
@@ -372,7 +371,6 @@ USER_AGENT = (
 )
 
 _log = logging.getLogger(__name__)
-T = TypeVar("T")
 
 
 def crear_cliente(timeout: float = 30.0, acepta: str = "application/json") -> httpx.Client:
@@ -385,8 +383,14 @@ def crear_cliente(timeout: float = 30.0, acepta: str = "application/json") -> ht
     )
 
 
-def reintentar(operacion: Callable[[], T], intentos: int = 3, espera_base: float = 1.0) -> T | None:
-    """Ejecuta `operacion` con retroceso exponencial. Devuelve None si todo falla."""
+def reintentar[T](
+    operacion: Callable[[], T], intentos: int = 3, espera_base: float = 1.0
+) -> T | None:
+    """Ejecuta `operacion` con retroceso exponencial. Devuelve None si todo falla.
+
+    Genéricos con sintaxis PEP 695 (`def reintentar[T]`), no `TypeVar`: con
+    `target-version = "py313"` la regla UP047 de ruff rechaza la forma antigua.
+    """
     for intento in range(intentos):
         try:
             return operacion()
