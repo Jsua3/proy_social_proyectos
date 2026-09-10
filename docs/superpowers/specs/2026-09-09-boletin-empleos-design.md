@@ -105,11 +105,12 @@ sin beneficio.
 ```python
 class Modalidad(StrEnum):
     PRESENCIAL = "presencial"
-    HIBRIDO    = "hibrido"
-    REMOTO     = "remoto"
+    HIBRIDO = "hibrido"
+    REMOTO = "remoto"
+
 
 class Oferta(BaseModel):
-    id: str                        # hash estable de (fuente, id_nativo)
+    id: str  # hash estable de (fuente, id_nativo)
     fuente: str
     titulo: str
     empresa: str | None
@@ -124,18 +125,20 @@ class Oferta(BaseModel):
     descripcion: str
     recogida_en: datetime
 
+
 class Decision(StrEnum):
-    INCLUIR   = "incluir"
+    INCLUIR = "incluir"
     DESCARTAR = "descartar"
+
 
 class Evaluacion(BaseModel):
     oferta: Oferta
-    puntaje_relevancia: float      # 0.0 – 1.0
-    puntaje_legitimidad: float     # 0.0 – 1.0
+    puntaje_relevancia: float  # 0.0 – 1.0
+    puntaje_legitimidad: float  # 0.0 – 1.0
     vigente: bool
     enlace_vivo: bool
     decision: Decision
-    motivos: list[str]             # siempre poblado, incluso al incluir
+    motivos: list[str]  # siempre poblado, incluso al incluir
 ```
 
 `motivos` se llena **siempre**, no solo al descartar. Es lo que permite auditar el filtro y ajustarlo.
@@ -145,10 +148,10 @@ class Evaluacion(BaseModel):
 ```python
 class FuenteEmpleo(Protocol):
     nombre: str
-    base_permiso: str        # por qué podemos usarla — obligatorio
-    atribucion: str          # texto que aparecerá en el pie — obligatorio
+    base_permiso: str  # por qué podemos usarla — obligatorio
+    atribucion: str  # texto que aparecerá en el pie — obligatorio
     url_atribucion: str
-    confianza_base: float    # 0.0 – 1.0, sesga el puntaje de legitimidad
+    confianza_base: float  # 0.0 – 1.0, sesga el puntaje de legitimidad
 
     def obtener(self) -> list[Oferta]: ...
 ```

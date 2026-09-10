@@ -49,8 +49,14 @@ dependencies = [
     "pydantic>=2.9",
     "httpx>=0.27",
     "selectolax>=0.3.21",
-    "jinja2-mjml>=0.3",
+    "jinja2-mjml>=0.1",
 ]
+
+# jinja2-mjml solo existe en 0.1.0 en PyPI y fija mjml-python<0.2.0, que no
+# publica wheels para cp313. mjml-python 1.2.4+ sí los trae (cp313/abi3) y la
+# API que usamos es compatible. Verificado el 9/09/2026.
+[tool.uv]
+override-dependencies = ["mjml-python>=1.2.4"]
 
 [project.scripts]
 boletin = "boletin_empleos.cli:main"
@@ -1281,7 +1287,9 @@ def test_carga_el_config_del_proyecto():
 def test_los_terminos_del_vocabulario_estan_normalizados():
     cfg = cargar_config(RAIZ / "config.toml")
     todos = cfg.vocabulario.cargos + cfg.vocabulario.tecnologias
-    assert all(t == t.lower().strip() for t in todos), "deben venir en minúscula y sin espacios extra"
+    assert all(t == t.lower().strip() for t in todos), (
+        "deben venir en minúscula y sin espacios extra"
+    )
 ```
 
 - [ ] **Step 2: Ejecutar y verificar que falla**
@@ -1605,9 +1613,7 @@ from boletin_empleos.modelos import Oferta
 from boletin_empleos.nucleo.relevancia import normalizar_texto
 
 
-def seniority_apropiado(
-    oferta: Oferta, cfg: ConfigSeniority, max_meses: int
-) -> tuple[bool, str]:
+def seniority_apropiado(oferta: Oferta, cfg: ConfigSeniority, max_meses: int) -> tuple[bool, str]:
     """Devuelve (apropiado, motivo). El motivo va vacío cuando la oferta pasa."""
     titulo = normalizar_texto(oferta.titulo)
     for termino in cfg.terminos_excluidos:
@@ -1615,7 +1621,10 @@ def seniority_apropiado(
             return (False, f"el título indica seniority alto: '{termino}'")
 
     if oferta.meses_experiencia is not None and oferta.meses_experiencia > max_meses:
-        return (False, f"exige {oferta.meses_experiencia} meses de experiencia (máximo {max_meses})")
+        return (
+            False,
+            f"exige {oferta.meses_experiencia} meses de experiencia (máximo {max_meses})",
+        )
 
     return (True, "")
 ```
@@ -2455,8 +2464,9 @@ def test_separa_enlaces_vivos_de_muertos():
     respx.head("https://ejemplo.co/1").mock(return_value=httpx.Response(200))
     respx.head("https://ejemplo.co/2").mock(return_value=httpx.Response(404))
 
-    vivas, muertas = filtrar_enlaces_vivos([_evaluacion("https://ejemplo.co/1"),
-                                            _evaluacion("https://ejemplo.co/2")])
+    vivas, muertas = filtrar_enlaces_vivos(
+        [_evaluacion("https://ejemplo.co/1"), _evaluacion("https://ejemplo.co/2")]
+    )
     assert [str(e.oferta.url) for e in vivas] == ["https://ejemplo.co/1"]
     assert muertas[0].decision is Decision.DESCARTAR
     assert muertas[0].motivo is MotivoDescarte.ENLACE_MUERTO
@@ -2744,7 +2754,11 @@ class EnriquecedorAnthropic:
         if not evaluaciones:
             return {}
         entradas = [
-            {"id": e.oferta.id, "titulo": e.oferta.titulo, "descripcion": e.oferta.descripcion[:800]}
+            {
+                "id": e.oferta.id,
+                "titulo": e.oferta.titulo,
+                "descripcion": e.oferta.descripcion[:800],
+            }
             for e in evaluaciones
         ]
         prompt = (
@@ -2817,8 +2831,14 @@ from boletin_empleos.modelos import Decision, Evaluacion, Modalidad, MotivoDesca
 from boletin_empleos.render.renderizador import DatosBoletin, FuenteUsada, renderizar
 
 
-def _evaluacion(titulo: str, modalidad: Modalidad, pais: str | None, decision=Decision.INCLUIR,
-                motivo=None, notas=None) -> Evaluacion:
+def _evaluacion(
+    titulo: str,
+    modalidad: Modalidad,
+    pais: str | None,
+    decision=Decision.INCLUIR,
+    motivo=None,
+    notas=None,
+) -> Evaluacion:
     return Evaluacion(
         oferta=Oferta(
             id=f"x:{titulo}",
@@ -2900,10 +2920,22 @@ def test_declara_las_fuentes_caidas():
 
 def test_el_apendice_muestra_solo_los_descartes_pertinentes():
     descartadas = [
-        _evaluacion("Estafa", Modalidad.REMOTO, "CO", Decision.DESCARTAR,
-                    MotivoDescarte.LEGITIMIDAD, ["pide dinero al aspirante"]),
-        _evaluacion("Contadora", Modalidad.REMOTO, "CO", Decision.DESCARTAR,
-                    MotivoDescarte.RELEVANCIA, ["relevancia 0.10"]),
+        _evaluacion(
+            "Estafa",
+            Modalidad.REMOTO,
+            "CO",
+            Decision.DESCARTAR,
+            MotivoDescarte.LEGITIMIDAD,
+            ["pide dinero al aspirante"],
+        ),
+        _evaluacion(
+            "Contadora",
+            Modalidad.REMOTO,
+            "CO",
+            Decision.DESCARTAR,
+            MotivoDescarte.RELEVANCIA,
+            ["relevancia 0.10"],
+        ),
     ]
     html = renderizar(_datos(descartadas=descartadas))
     assert "pide dinero al aspirante" in html
@@ -3146,9 +3178,11 @@ def _agrupar(datos: DatosBoletin) -> list[dict]:
 Run: `uv run pytest tests/test_render.py -v`
 Expected: PASS — 7 tests
 
-Si `jinja2_mjml.Environment` no acepta `loader`, revisa su API con
-`uv run python -c "import jinja2_mjml; help(jinja2_mjml.Environment)"` y ajusta `renderizar()` y
-`_cargador()`. La plantilla y los tests no cambian.
+**API verificada el 9/09/2026, no hace falta investigarla:** `jinja2_mjml.Environment` hereda de
+`jinja2.Environment` y acepta `loader` con la misma firma. La cadena completa
+(`FileSystemLoader` → `get_template(...).render(...)`) se probó end-to-end contra un `.mjml` con
+variables y bucles: devuelve HTML con `<!doctype>`, las variables interpoladas y los enlaces intactos.
+El código de esta tarea funciona tal como está escrito.
 
 - [ ] **Step 6: Formatear y commitear**
 
@@ -3314,9 +3348,7 @@ class EntregaSMTP:
         mensaje["Subject"] = asunto
         mensaje["From"] = self._remitente
         mensaje["To"] = ", ".join(destinatarios)
-        mensaje.set_content(
-            "Este boletín requiere un cliente de correo con soporte HTML."
-        )
+        mensaje.set_content("Este boletín requiere un cliente de correo con soporte HTML.")
         mensaje.add_alternative(html, subtype="html")
 
         try:
@@ -3418,9 +3450,7 @@ def _oferta(id_, titulo="Desarrollador Backend Python"):
 
 @pytest.fixture
 def sin_verificacion(monkeypatch):
-    monkeypatch.setattr(
-        "boletin_empleos.cli.filtrar_enlaces_vivos", lambda evs: (evs, [])
-    )
+    monkeypatch.setattr("boletin_empleos.cli.filtrar_enlaces_vivos", lambda evs: (evs, []))
 
 
 def test_dry_run_escribe_el_boletin_sin_enviar(tmp_path, monkeypatch, sin_verificacion):
@@ -3449,9 +3479,7 @@ def test_una_fuente_caida_no_tumba_el_boletin(tmp_path, monkeypatch, sin_verific
 
 
 def test_sin_ninguna_oferta_no_se_envia_boletin(tmp_path, monkeypatch, sin_verificacion):
-    monkeypatch.setattr(
-        "boletin_empleos.cli.construir_fuentes", lambda: [FuenteFalsa("caida", [])]
-    )
+    monkeypatch.setattr("boletin_empleos.cli.construir_fuentes", lambda: [FuenteFalsa("caida", [])])
     salida = tmp_path / "salida"
     codigo = main(["--dry-run", "--salida", str(salida), "--historial", str(tmp_path / "h.json")])
 
