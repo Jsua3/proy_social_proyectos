@@ -363,9 +363,11 @@ _log = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
-def crear_cliente(timeout: float = 30.0) -> httpx.Client:
+def crear_cliente(timeout: float = 30.0, acepta: str = "application/json") -> httpx.Client:
+    """`acepta` se parametriza porque no todas las fuentes sirven JSON: Magneto sirve HTML
+    y un servidor estricto respondería 406 ante un Accept que no puede satisfacer."""
     return httpx.Client(
-        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        headers={"User-Agent": USER_AGENT, "Accept": acepta},
         timeout=timeout,
         follow_redirects=True,
     )
@@ -751,7 +753,10 @@ def test_spe_recorre_todas_las_paginas():
     llamadas = {"n": 0}
 
     def responder(request):
-        llamadas["n"] += 1
+        # Solo se cuentan las páginas de resultados: /version también casa con este mock
+        # y contarlo daría 4 en vez de 3.
+        if "vacantes/resultados" in request.url.path:
+            llamadas["n"] += 1
         pagina = int(request.url.params.get("page", 1))
         return httpx.Response(200, json=FIXTURE | {"totalPages": 3, "currentPage": pagina})
 
@@ -1153,10 +1158,15 @@ class FuenteMagneto:
         vistos: set[str] = set()
         ofertas: list[Oferta] = []
 
-        with crear_cliente() as cliente:
+        with crear_cliente(acepta="text/html,application/xhtml+xml") as cliente:
             for ruta in self._rutas:
-                assert "?" not in ruta, "Magneto prohíbe URLs con parámetros"
-                respuesta = reintentar(lambda: cliente.get(f"{_ORIGEN}{ruta}").raise_for_status())
+                if "?" in ruta:
+                    raise ValueError(f"Magneto prohíbe URLs con parámetros: {ruta}")
+                # `r=ruta` se liga como argumento por defecto: sin esto ruff marca B023
+                # (función que captura una variable de bucle).
+                respuesta = reintentar(
+                    lambda r=ruta: cliente.get(f"{_ORIGEN}{r}").raise_for_status()
+                )
                 if respuesta is None:
                     _log.error("magneto: no se pudo obtener %s", ruta)
                     continue
