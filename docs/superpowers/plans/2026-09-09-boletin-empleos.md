@@ -538,16 +538,25 @@ git commit -m "feat: puerto de fuentes y adaptador Remotive"
 - [ ] **Step 1: Descargar la fixture real**
 
 ```bash
+mkdir -p tests/fixtures
 curl -s -A "BoletinEmpleosCUE/1.0" "https://remoteok.com/api" \
-  -o /tmp/remoteok_full.json
-python -c "
-import json
-d=json.load(open('/tmp/remoteok_full.json',encoding='utf-8'))
+  -o tests/fixtures/.remoteok_completo.json
+uv run python -c "
+import json, pathlib
+crudo = pathlib.Path('tests/fixtures/.remoteok_completo.json')
+d = json.loads(crudo.read_text(encoding='utf-8'))
 print('primer elemento (aviso legal):', list(d[0]))
-json.dump(d[:6], open('tests/fixtures/remoteok.json','w',encoding='utf-8'), ensure_ascii=False)
 print('campos de oferta:', list(d[1]))
+pathlib.Path('tests/fixtures/remoteok.json').write_text(
+    json.dumps(d[:6], ensure_ascii=False), encoding='utf-8')
+crudo.unlink()
 "
 ```
+
+**Por qué el archivo temporal va dentro del repositorio y no en `/tmp`:** en este entorno Windows,
+`curl` corre bajo MSYS y resuelve `/tmp` a una ruta distinta de la que ve Python, que lo interpreta
+como `C:\tmp` literal. Escribir en `/tmp` y leerlo desde Python falla con `FileNotFoundError`.
+El archivo intermedio se borra al final; `tests/fixtures/remoteok.json` es el que queda.
 
 - [ ] **Step 2: Escribir el test que falla**
 
@@ -3735,11 +3744,22 @@ vacantes junior en Colombia". Anota cuántas vacantes sobreviven al filtro. Si s
 - [ ] **Step 2: Abrir el HTML y revisarlo visualmente**
 
 ```bash
-start datos/prueba/*.html
+uv run python -c "
+import pathlib, webbrowser
+archivos = sorted(pathlib.Path('datos/prueba').glob('*.html'))
+if not archivos:
+    raise SystemExit('no se generó ningún boletín en datos/prueba/')
+ultimo = archivos[-1]
+print('abriendo', ultimo, f'({ultimo.stat().st_size} bytes)')
+webbrowser.open(ultimo.resolve().as_uri())
+"
 ```
 
-Verifica: los tres bloques aparecen, los enlaces abren la vacante correcta, el pie cita todas las fuentes
-usadas, y el apéndice no está inundado.
+Se usa `webbrowser` de la librería estándar en vez de `start`: `start` es un builtin de `cmd.exe`
+y no existe en Git Bash, que es donde corren estos comandos.
+
+Verifica: los tres bloques aparecen, los enlaces abren la vacante correcta, el pie cita todas las
+fuentes usadas, y el apéndice no está inundado.
 
 - [ ] **Step 3: Crear el workflow de pruebas**
 
