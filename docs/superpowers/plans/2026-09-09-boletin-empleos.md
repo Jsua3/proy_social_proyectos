@@ -50,6 +50,7 @@ requires-python = ">=3.13"
 dependencies = [
     "pydantic>=2.9",
     "httpx>=0.27",
+    "certifi>=2024.8.30",
     "selectolax>=0.3.21",
     "jinja2-mjml>=0.1",
 ]
@@ -374,10 +375,13 @@ Expected: FAIL con `ModuleNotFoundError: No module named 'boletin_empleos.fuente
 
 import json
 import logging
+import ssl
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
+import certifi
 import httpx
 
 USER_AGENT = (
@@ -388,15 +392,43 @@ USER_AGENT = (
 _log = logging.getLogger(__name__)
 
 
+CERTIFICADOS = Path(__file__).parent / "certificados"
+
+
+def contexto_ssl(intermedios: Sequence[str] = ()) -> ssl.SSLContext:
+    """Contexto TLS de verificación completa, más los intermedios que se le indiquen.
+
+    Algunos servidores envían solo su certificado de hoja y omiten los intermedios
+    de la cadena. Un navegador lo salva descargándolos sobre la marcha (AIA fetching);
+    OpenSSL no lo hace, así que la verificación falla con "unable to get local issuer
+    certificate" y el adaptador devuelve cero ofertas sin explicar por qué.
+
+    Aportar el intermedio que falta **no baja la seguridad**: la verificación del
+    certificado y del nombre de host siguen activas. Lo que NO haríamos nunca es
+    `verify=False`.
+    """
+    contexto = ssl.create_default_context(cafile=certifi.where())
+    for nombre in intermedios:
+        contexto.load_verify_locations(cadata=(CERTIFICADOS / nombre).read_text("ascii"))
+    return contexto
+
+
 def crear_cliente(
-    tiempo_limite: float = 30.0, acepta: str = "application/json"
+    tiempo_limite: float = 30.0,
+    acepta: str = "application/json",
+    verificacion: ssl.SSLContext | bool = True,
 ) -> httpx.Client:
     """`acepta` se parametriza porque no todas las fuentes sirven JSON: Magneto sirve HTML
-    y un servidor estricto respondería 406 ante un Accept que no puede satisfacer."""
+    y un servidor estricto respondería 406 ante un Accept que no puede satisfacer.
+
+    `verificacion` permite pasar un contexto TLS propio para las fuentes cuyo servidor
+    tiene la cadena de certificados incompleta (ver `contexto_ssl`).
+    """
     return httpx.Client(
         headers={"User-Agent": USER_AGENT, "Accept": acepta},
         timeout=tiempo_limite,
         follow_redirects=True,
+        verify=verificacion,
     )
 
 
@@ -773,6 +805,8 @@ git commit -m "feat: adaptador RemoteOK"
 
 **Files:**
 - Create: `src/boletin_empleos/fuentes/spe.py`
+- Create: `src/boletin_empleos/certificados/geotrust-tls-rsa-ca-g1.pem`
+- Modify: `src/boletin_empleos/http.py` (añade `contexto_ssl` y el parámetro `verificacion`)
 - Create: `tests/fixtures/spe_pagina.json`
 - Create: `tests/test_fuente_spe.py`
 
@@ -787,6 +821,33 @@ endpoint `GET /vacantes/resultados?page=N&<filtros>`, 50 registros por página, 
 
 **Consultas de la estrategia** (spec §7): `teletrabajo=1` (39 págs) · `departamento=Quindio` (31 págs) ·
 `cargo` con lista curada (~15 págs). Total ≈ 85 peticiones.
+
+- [ ] **Step 0: Descargar el certificado intermedio que el servidor omite**
+
+```bash
+mkdir -p src/boletin_empleos/certificados
+curl -s "http://cacerts.geotrust.com/GeoTrustTLSRSACAG1.crt" -o /c/temp-geotrust.der
+openssl x509 -inform DER -in /c/temp-geotrust.der \
+  -out src/boletin_empleos/certificados/geotrust-tls-rsa-ca-g1.pem -outform PEM
+rm -f /c/temp-geotrust.der
+openssl x509 -in src/boletin_empleos/certificados/geotrust-tls-rsa-ca-g1.pem -noout -subject -issuer
+```
+
+Expected: `subject=... CN=GeoTrust TLS RSA CA G1` y `issuer=... CN=DigiCert Global Root G2`.
+
+La URL sale del propio certificado del SPE (extensión *Authority Information Access*), así que es
+la fuente oficial del intermedio, no un tercero.
+
+**Por qué hace falta:** el servidor de `buscadordeempleo.gov.co` envía **solo su certificado de
+hoja** y omite el intermedio. `certifi` trae la raíz pero no el intermedio, así que `httpx` falla
+con `unable to get local issuer certificate`. Como el contrato dice que un adaptador nunca lanza,
+el fallo se traga y el SPE aporta **cero ofertas sin que nadie entienda por qué**. Comprobado en
+vivo el 9/09/2026. `curl` en Windows no falla porque descarga el intermedio sobre la marcha;
+OpenSSL —y por tanto Python, y por tanto GitHub Actions— no hace eso.
+
+**El certificado de hoja del SPE expira el 7 de enero de 2027.** Cuando lo renueven, si cambian de
+emisor habrá que reemplazar este intermedio. El síntoma será el mismo: el SPE aportando cero
+ofertas. El `WARNING` de `contexto_ssl` y el fallo declarado en el pie del boletín son la señal.
 
 - [ ] **Step 1: Descargar la fixture real**
 
@@ -895,6 +956,23 @@ def test_spe_interpreta_el_rango_salarial():
     assert _rango_salarial(None) == (None, None)
 
 
+def test_contexto_ssl_carga_el_intermedio_sin_bajar_la_verificacion():
+    """El servidor del SPE omite su intermedio; lo aportamos sin desactivar nada."""
+    import ssl
+
+    from boletin_empleos.http import contexto_ssl
+
+    contexto = contexto_ssl(["geotrust-tls-rsa-ca-g1.pem"])
+    assert contexto.verify_mode is ssl.CERT_REQUIRED, "la verificación debe seguir activa"
+    assert contexto.check_hostname is True, "la comprobación de host debe seguir activa"
+    # El intermedio quedó realmente cargado en el almacén del contexto.
+    sujetos = [
+        dict(x for parte in cert["subject"] for x in parte).get("commonName", "")
+        for cert in contexto.get_ca_certs()
+    ]
+    assert "GeoTrust TLS RSA CA G1" in sujetos
+
+
 def test_spe_declara_su_permiso_y_atribucion():
     f = FuenteSPE()
     assert f.nombre == "spe"
@@ -945,12 +1023,19 @@ import time
 from datetime import UTC, datetime
 
 from boletin_empleos.fuentes.comun import fecha_iso
-from boletin_empleos.http import crear_cliente, json_de, reintentar
+from boletin_empleos.http import contexto_ssl, crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
 _log = logging.getLogger(__name__)
 _BASE = "https://www.buscadordeempleo.gov.co/backbue/v1"
 _VERSION_ESPERADA = "2.4.0"
+
+# El servidor del SPE envía solo su certificado de hoja y omite el intermedio
+# GeoTrust TLS RSA CA G1. certifi trae la raíz (DigiCert Global Root G2) pero no
+# ese intermedio, así que sin esto httpx falla con "unable to get local issuer
+# certificate" y el adaptador devuelve cero ofertas en silencio.
+# Verificado el 9/09/2026. La verificación TLS permanece activa.
+_INTERMEDIO_SPE = "geotrust-tls-rsa-ca-g1.pem"
 
 # Estrategia de descarga medida en el spec §7: cubre remoto nacional,
 # el mercado local del Quindío, y ocupaciones de software a nivel nacional.
@@ -990,7 +1075,7 @@ class FuenteSPE:
         vistos: set[str] = set()
         ofertas: list[Oferta] = []
 
-        with crear_cliente() as cliente:
+        with crear_cliente(verificacion=contexto_ssl([_INTERMEDIO_SPE])) as cliente:
             self._verificar_version(cliente)
             for consulta in self._consultas:
                 for bruto in self._recorrer(cliente, consulta):
@@ -1144,7 +1229,7 @@ def _rango_salarial(texto: str | None) -> tuple[int | None, int | None]:
 - [ ] **Step 5: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_spe.py -v`
-Expected: PASS — 9 tests
+Expected: PASS — 10 tests
 
 - [ ] **Step 6: Formatear y commitear**
 
