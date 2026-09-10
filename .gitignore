@@ -15,6 +15,7 @@ build/
 .env.*
 !.env.example
 *.pem
+!src/boletin_empleos/certificados/*.pem
 *.key
 credenciales*.json
 

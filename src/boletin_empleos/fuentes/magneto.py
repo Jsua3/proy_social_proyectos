@@ -68,7 +68,14 @@ class FuenteMagneto:
         with crear_cliente(acepta="text/html,application/xhtml+xml") as cliente:
             for ruta in self._rutas:
                 if "?" in ruta:
-                    raise ValueError(f"Magneto prohíbe URLs con parámetros: {ruta}")
+                    # Se omite, no se lanza: una ruta mal formada no debe abortar las
+                    # demás, igual que no lo hace una ruta caída por HTTP. El contrato
+                    # global dice que un adaptador nunca lanza excepción.
+                    _log.error(
+                        "magneto: ruta con parámetros, se omite por respeto a su robots.txt: %s",
+                        ruta,
+                    )
+                    continue
                 # `r=ruta` se liga como argumento por defecto: sin esto ruff marca B023
                 # (función que captura una variable de bucle).
                 respuesta = reintentar(

@@ -15,12 +15,19 @@ import time
 from datetime import UTC, datetime
 
 from boletin_empleos.fuentes.comun import fecha_iso
-from boletin_empleos.http import crear_cliente, json_de, reintentar
+from boletin_empleos.http import contexto_ssl, crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
 _log = logging.getLogger(__name__)
 _BASE = "https://www.buscadordeempleo.gov.co/backbue/v1"
 _VERSION_ESPERADA = "2.4.0"
+
+# El servidor del SPE envía solo su certificado de hoja y omite el intermedio
+# GeoTrust TLS RSA CA G1. certifi trae la raíz (DigiCert Global Root G2) pero no
+# ese intermedio, así que sin esto httpx falla con "unable to get local issuer
+# certificate" y el adaptador devuelve cero ofertas en silencio.
+# Verificado el 9/09/2026. La verificación TLS permanece activa.
+_INTERMEDIO_SPE = "geotrust-tls-rsa-ca-g1.pem"
 
 # Estrategia de descarga medida en el spec §7: cubre remoto nacional,
 # el mercado local del Quindío, y ocupaciones de software a nivel nacional.
@@ -60,7 +67,7 @@ class FuenteSPE:
         vistos: set[str] = set()
         ofertas: list[Oferta] = []
 
-        with crear_cliente() as cliente:
+        with crear_cliente(verificacion=contexto_ssl([_INTERMEDIO_SPE])) as cliente:
             self._verificar_version(cliente)
             for consulta in self._consultas:
                 for bruto in self._recorrer(cliente, consulta):
@@ -81,7 +88,7 @@ class FuenteSPE:
         if not isinstance(datos, dict):
             return
         version = datos.get("backVersion")
-        if version != _VERSION_ESPERADA:
+        if version != _VERSION_ESPERADA:  # noqa: SIM102 — el log necesita ambos valores
             _log.warning(
                 "spe: la API cambió de versión (esperada %s, encontrada %s). "
                 "Revisar el contrato del adaptador.",
@@ -108,8 +115,19 @@ class FuenteSPE:
             if not isinstance(datos, dict):
                 _log.error("spe: respuesta sin la forma esperada en %s p%d", consulta, pagina)
                 return
-            total_paginas = datos.get("totalPages", 1)
-            yield from datos.get("resultados", [])
+
+            # Un JSON válido no garantiza tipos correctos. Sin estas comprobaciones,
+            # `totalPages` como cadena, `resultados: null` o `resultados` como objeto
+            # propagan TypeError/AttributeError fuera de obtener(), rompiendo el
+            # contrato de que un adaptador nunca lanza.
+            total = datos.get("totalPages", 1)
+            total_paginas = total if isinstance(total, int) and total > 0 else 1
+
+            resultados = datos.get("resultados")
+            if not isinstance(resultados, list):
+                _log.error("spe: 'resultados' no es una lista en %s p%d", consulta, pagina)
+                return
+            yield from (fila for fila in resultados if isinstance(fila, dict))
             pagina += 1
             if self._pausa:
                 time.sleep(self._pausa)
@@ -199,7 +217,7 @@ _NUMERO = re.compile(r"\$?\s*([\d.]{4,})")
 def _rango_salarial(texto: str | None) -> tuple[int | None, int | None]:
     """Interpreta los rangos del SPE.
 
-    Ejemplos reales: '$1.000.001 - $1.500.000', 'Mayor de $15.000.001', 'A Convenir'.
+    Formatos reales: '$1.000.001 - $1.500.000', 'Mayor de $15.000.001', 'A Convenir'.
     """
     if not texto:
         return (None, None)

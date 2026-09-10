@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import pytest
 import respx
 
 from boletin_empleos.fuentes.spe import FuenteSPE, _a_modalidad, _rango_salarial
@@ -85,6 +86,44 @@ def test_spe_interpreta_el_rango_salarial():
     assert _rango_salarial("Mayor de $15.000.001") == (15_000_001, None)
     assert _rango_salarial("A Convenir") == (None, None)
     assert _rango_salarial(None) == (None, None)
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("cuerpo", "descripcion"),
+    [
+        ({"totalPages": "muchas", "resultados": []}, "totalPages como cadena"),
+        ({"totalPages": 1, "resultados": None}, "resultados nulo"),
+        ({"totalPages": 1, "resultados": {"a": 1}}, "resultados como objeto"),
+        ({"totalPages": 1, "resultados": ["texto plano"]}, "elementos no-dict"),
+        ({"totalPages": -5, "resultados": []}, "totalPages negativo"),
+    ],
+)
+def test_spe_no_lanza_con_json_valido_pero_mal_tipado(cuerpo, descripcion):
+    """Un JSON válido no garantiza tipos correctos. El adaptador nunca debe lanzar."""
+    respx.get(url__startswith="https://www.buscadordeempleo.gov.co/backbue/v1").mock(
+        return_value=httpx.Response(200, json=cuerpo)
+    )
+    assert FuenteSPE(consultas=[{"departamento": "Quindio"}], pausa=0.0).obtener() == [], (
+        descripcion
+    )
+
+
+def test_contexto_ssl_carga_el_intermedio_sin_bajar_la_verificacion():
+    """El servidor del SPE omite su intermedio; lo aportamos sin desactivar nada."""
+    import ssl
+
+    from boletin_empleos.http import contexto_ssl
+
+    contexto = contexto_ssl(["geotrust-tls-rsa-ca-g1.pem"])
+    assert contexto.verify_mode is ssl.CERT_REQUIRED, "la verificación debe seguir activa"
+    assert contexto.check_hostname is True, "la comprobación de host debe seguir activa"
+    # El intermedio quedó realmente cargado en el almacén del contexto.
+    sujetos = [
+        dict(x for parte in cert["subject"] for x in parte).get("commonName", "")
+        for cert in contexto.get_ca_certs()
+    ]
+    assert "GeoTrust TLS RSA CA G1" in sujetos
 
 
 def test_spe_declara_su_permiso_y_atribucion():

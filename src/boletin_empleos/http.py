@@ -3,10 +3,13 @@
 
 import json
 import logging
+import ssl
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+import certifi
 import httpx
 
 USER_AGENT = (
@@ -16,14 +19,53 @@ USER_AGENT = (
 
 _log = logging.getLogger(__name__)
 
+_DIR_CERTIFICADOS = Path(__file__).parent / "certificados"
 
-def crear_cliente(tiempo_limite: float = 30.0, acepta: str = "application/json") -> httpx.Client:
+
+def contexto_ssl(intermedios: list[str]) -> ssl.SSLContext:
+    """Contexto TLS de `certifi` más los certificados intermedios indicados.
+
+    Algunos servidores envían una cadena TLS incompleta: omiten un intermedio y
+    confían en que el cliente ya lo tenga. `certifi` trae las raíces, pero no
+    compensa una cadena incompleta del servidor, así que sin el intermedio httpx
+    falla con "unable to get local issuer certificate".
+
+    Cargar un intermedio no baja la seguridad: `verify_mode` y `check_hostname`
+    quedan en sus valores por defecto (ambos activos). `intermedios` son nombres
+    de archivo dentro de `certificados/`, no rutas.
+    """
+    contexto = ssl.create_default_context(cafile=certifi.where())
+    for nombre in intermedios:
+        ruta = _DIR_CERTIFICADOS / nombre
+        try:
+            contexto.load_verify_locations(cadata=ruta.read_text("ascii"))
+        except (OSError, ssl.SSLError) as e:
+            _log.warning(
+                "no se pudo cargar el certificado intermedio %s: %s. "
+                "Si el emisor lo cambió, hay que reemplazarlo en certificados/.",
+                nombre,
+                e,
+            )
+    return contexto
+
+
+def crear_cliente(
+    tiempo_limite: float = 30.0,
+    acepta: str = "application/json",
+    verificacion: ssl.SSLContext | bool = True,
+) -> httpx.Client:
     """`acepta` se parametriza porque no todas las fuentes sirven JSON: Magneto sirve HTML
-    y un servidor estricto respondería 406 ante un Accept que no puede satisfacer."""
+    y un servidor estricto respondería 406 ante un Accept que no puede satisfacer.
+
+    `verificacion` acepta un `ssl.SSLContext` (ver `contexto_ssl`) para fuentes cuyo
+    servidor envía una cadena TLS incompleta; por defecto usa la verificación
+    estándar de httpx con la verificación TLS activa.
+    """
     return httpx.Client(
         headers={"User-Agent": USER_AGENT, "Accept": acepta},
         timeout=tiempo_limite,
         follow_redirects=True,
+        verify=verificacion,
     )
 
 
