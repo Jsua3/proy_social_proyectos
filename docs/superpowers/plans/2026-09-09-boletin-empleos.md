@@ -1662,10 +1662,16 @@ excluidos = [
 
 [experiencia]
 # Descartan por exigir un nivel de experiencia demasiado alto.
-# Son datos, no simbolos: coinciden con el texto real de las ofertas.
+# Son datos, no símbolos: coinciden con el texto real de las ofertas.
+#
+# "principal" a secas NO está en la lista a propósito: en español colombiano
+# significa casi siempre "sede principal" o "cajero principal", y descartaría un
+# "Desarrollador - Sede Principal" como si fuera senior. Se usan en su lugar las
+# formas inglesas inequívocas, que son las que aparecen en las fuentes remotas.
 terminos_excluidos = [
   "senior", "sr.", "lead", "lider tecnico", "líder técnico", "arquitecto jefe",
-  "jefe de", "gerente", "director", "head of", "principal", "staff engineer",
+  "jefe de", "gerente", "director", "head of", "staff engineer",
+  "principal engineer", "principal software", "principal developer",
   "coordinador de desarrollo",
 ]
 
@@ -1776,9 +1782,11 @@ git commit -m "feat: configuración externa en config.toml"
 # tests/test_nucleo_filtros.py
 from datetime import UTC, date, datetime
 
+import pytest
+
 from boletin_empleos.config import ConfigExperiencia, Vocabulario
 from boletin_empleos.modelos import Modalidad, Oferta
-from boletin_empleos.nucleo.relevancia import normalizar_texto, puntuar_relevancia
+from boletin_empleos.nucleo.relevancia import contiene, normalizar_texto, puntuar_relevancia
 from boletin_empleos.nucleo.experiencia import experiencia_apropiada
 from boletin_empleos.nucleo.vigencia import esta_vigente
 
@@ -1817,6 +1825,50 @@ def test_relevancia_baja_para_oferta_no_tecnica():
     assert puntuar_relevancia(o, VOCAB) < 0.2
 
 
+@pytest.mark.parametrize(
+    "titulo",
+    [
+        "Analista de Negocios",
+        "Auxiliar de Servicios Generales",
+        "Coordinador de Estudios",
+        "Jardinero y Oficios Varios",
+        "Asesor de Medios",
+        "Operario de Vidrios",
+    ],
+)
+def test_relevancia_no_casa_terminos_dentro_de_otras_palabras(titulo):
+    """`ios` no debe casar dentro de negocios, servicios, estudios, oficios...
+
+    Medido sobre 50 ofertas reales del SPE: con emparejamiento por subcadena, la
+    única que pasaba el filtro era "Jardinero y Oficios Varios".
+    """
+    vocabulario = Vocabulario(cargos=["desarrollador"], tecnologias=["ios", "qa", "sre"])
+    assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
+
+
+@pytest.mark.parametrize(
+    ("termino", "titulo", "debe_casar"),
+    [
+        ("ios", "Desarrollador iOS Senior", True),
+        ("ios", "Analista de Negocios", False),
+        ("qa", "Analista QA", True),
+        ("qa", "Asesor en Qatar", False),
+        (".net", "Desarrollador ASP.NET Core", True),
+        (".net", "Técnico en Planeta", False),
+        ("c#", "Programador C# Junior", True),
+        ("java", "Desarrollador Java", True),
+        ("java", "Analista JavaScript", False),
+        ("sql", "Administrador SQL Server", True),
+        ("sql", "Consultor NoSQL", False),
+        ("git", "Manejo de Git", True),
+        ("git", "Digitador", False),
+    ],
+)
+def test_contiene_respeta_las_fronteras_de_palabra(termino, titulo, debe_casar):
+    """`.net` sí debe casar dentro de `asp.net`; `java` no dentro de `javascript`."""
+    assert contiene(normalizar_texto(titulo), termino) is debe_casar
+
+
 def test_termino_excluido_anula_la_relevancia():
     o = _oferta("Asesor Comercial", "Manejo de Python para reportes internos.")
     assert puntuar_relevancia(o, VOCAB) == 0.0
@@ -1843,6 +1895,14 @@ def test_experiencia_rechaza_por_exceso():
     )
     assert ok is False
     assert "84" in motivo
+
+
+def test_experiencia_no_descarta_por_fragmentos_de_palabra():
+    """`lead` no debe casar dentro de *liderar*, ni `sr.` dentro de otras siglas."""
+    cfg = ConfigExperiencia(terminos_excluidos=["lead", "senior", "sr."])
+    for titulo in ["Desarrollador para liderar el frente web", "Analista de Recursos"]:
+        ok, _ = experiencia_apropiada(_oferta(titulo), cfg, 60)
+        assert ok is True, titulo
 
 
 def test_experiencia_acepta_junior():
@@ -1887,7 +1947,9 @@ Expected: FAIL con `ModuleNotFoundError: No module named 'boletin_empleos.nucleo
 # src/boletin_empleos/nucleo/relevancia.py
 """Puntuación de relevancia. Lógica pura: sin red, sin disco."""
 
+import re
 import unicodedata
+from functools import lru_cache
 
 from boletin_empleos.config import Vocabulario
 from boletin_empleos.modelos import Oferta
@@ -1903,21 +1965,43 @@ def normalizar_texto(texto: str) -> str:
     return " ".join(sin_tildes.lower().split())
 
 
+@lru_cache(maxsize=512)
+def patron_de(termino: str) -> re.Pattern[str]:
+    """Compila un término del vocabulario exigiendo frontera de palabra.
+
+    Buscar por subcadena rompe el filtro: `ios` casa dentro de *negocios*,
+    *servicios*, *estudios*, *medios*, *precios* y *oficios* — todas comunísimas
+    en títulos de ofertas colombianas. Medido sobre 50 ofertas reales del SPE, la
+    única que pasaba el filtro era "Jardinero y Oficios Varios".
+
+    La frontera se exige **solo donde el borde del término es alfanumérico**, para
+    que `.net` siga casando dentro de `asp.net` y `c#` siga funcionando.
+    """
+    inicio = r"(?<![a-z0-9])" if termino[:1].isalnum() else ""
+    fin = r"(?![a-z0-9])" if termino[-1:].isalnum() else ""
+    return re.compile(inicio + re.escape(termino) + fin)
+
+
+def contiene(texto: str, termino: str) -> bool:
+    """¿Aparece `termino` en `texto` como palabra, no como fragmento?"""
+    return patron_de(normalizar_texto(termino)).search(texto) is not None
+
+
 def puntuar_relevancia(oferta: Oferta, vocabulario: Vocabulario) -> float:
     """Devuelve 0.0–1.0. Un término excluido anula la oferta por completo."""
     titulo = normalizar_texto(oferta.titulo)
     descripcion = normalizar_texto(oferta.descripcion)
     completo = f"{titulo} {descripcion}"
 
-    if any(normalizar_texto(e) in completo for e in vocabulario.excluidos):
+    if any(contiene(completo, e) for e in vocabulario.excluidos):
         return 0.0
 
-    terminos = [normalizar_texto(t) for t in vocabulario.cargos + vocabulario.tecnologias]
+    terminos = vocabulario.cargos + vocabulario.tecnologias
     if not terminos:
         return 0.0
 
-    en_titulo = sum(1 for t in terminos if t in titulo)
-    en_descripcion = sum(1 for t in terminos if t in descripcion)
+    en_titulo = sum(1 for t in terminos if contiene(titulo, t))
+    en_descripcion = sum(1 for t in terminos if contiene(descripcion, t))
 
     puntaje = _PESO_TITULO * _saturar(en_titulo) + _PESO_DESCRIPCION * _saturar(en_descripcion)
     return round(min(puntaje, 1.0), 4)
@@ -1938,14 +2022,18 @@ def _saturar(coincidencias: int) -> float:
 
 from boletin_empleos.config import ConfigExperiencia
 from boletin_empleos.modelos import Oferta
-from boletin_empleos.nucleo.relevancia import normalizar_texto
+from boletin_empleos.nucleo.relevancia import contiene, normalizar_texto
 
 
 def experiencia_apropiada(oferta: Oferta, cfg: ConfigExperiencia, max_meses: int) -> tuple[bool, str]:
-    """Devuelve (apropiado, motivo). El motivo va vacío cuando la oferta pasa."""
+    """Devuelve (apropiado, motivo). El motivo va vacío cuando la oferta pasa.
+
+    El emparejamiento es por frontera de palabra, igual que en relevancia: por
+    subcadena, `lead` casaría dentro de *liderar* y `sr.` dentro de otras siglas.
+    """
     titulo = normalizar_texto(oferta.titulo)
     for termino in cfg.terminos_excluidos:
-        if normalizar_texto(termino) in titulo:
+        if contiene(titulo, termino):
             return (False, f"el título indica un nivel de experiencia alto: '{termino}'")
 
     if oferta.meses_experiencia is not None and oferta.meses_experiencia > max_meses:
