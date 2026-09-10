@@ -20,7 +20,9 @@
   `BoletinEmpleosCUE/1.0 (+https://github.com/Jsua3/proy_social_proyectos; coorproyeccioning@cue.edu.co)`
 - **Nunca commitear secretos.** Credenciales solo por variables de entorno.
 - **Los descartes por relevancia y las deduplicaciones NO van al apéndice del boletín**, solo al registro de ejecución (spec §8.6).
-- **Formato:** `ruff format` y `ruff check` deben pasar antes de cada commit.
+- **Formato:** `ruff format .` y `ruff check .` deben pasar antes de cada commit.
+  `docs/` está excluido en `pyproject.toml`: Ruff formatea el Python embebido en Markdown y
+  reescribiría este mismo plan. Si ves `docs/` modificado tras formatear, la exclusión se perdió.
 
 ---
 
@@ -74,6 +76,10 @@ packages = ["src/boletin_empleos"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# Ruff formatea los bloques de Python embebidos en Markdown. Sin esta exclusión,
+# `ruff format .` reescribe el propio plan y el spec en cada tarea, metiendo
+# documentos del controlador dentro de los commits de los implementadores.
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
