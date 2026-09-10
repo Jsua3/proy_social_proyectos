@@ -1,9 +1,11 @@
 from datetime import UTC, date, datetime
 
+import pytest
+
 from boletin_empleos.config import ConfigExperiencia, Vocabulario
 from boletin_empleos.modelos import Modalidad, Oferta
 from boletin_empleos.nucleo.experiencia import experiencia_apropiada
-from boletin_empleos.nucleo.relevancia import normalizar_texto, puntuar_relevancia
+from boletin_empleos.nucleo.relevancia import contiene, normalizar_texto, puntuar_relevancia
 from boletin_empleos.nucleo.vigencia import esta_vigente
 
 VOCAB = Vocabulario(
@@ -41,6 +43,50 @@ def test_relevancia_baja_para_oferta_no_tecnica():
     assert puntuar_relevancia(o, VOCAB) < 0.2
 
 
+@pytest.mark.parametrize(
+    "titulo",
+    [
+        "Analista de Negocios",
+        "Auxiliar de Servicios Generales",
+        "Coordinador de Estudios",
+        "Jardinero y Oficios Varios",
+        "Asesor de Medios",
+        "Operario de Vidrios",
+    ],
+)
+def test_relevancia_no_casa_terminos_dentro_de_otras_palabras(titulo):
+    """`ios` no debe casar dentro de negocios, servicios, estudios, oficios...
+
+    Medido sobre 50 ofertas reales del SPE: con emparejamiento por subcadena, la
+    única que pasaba el filtro era "Jardinero y Oficios Varios".
+    """
+    vocabulario = Vocabulario(cargos=["desarrollador"], tecnologias=["ios", "qa", "sre"])
+    assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
+
+
+@pytest.mark.parametrize(
+    ("termino", "titulo", "debe_casar"),
+    [
+        ("ios", "Desarrollador iOS Senior", True),
+        ("ios", "Analista de Negocios", False),
+        ("qa", "Analista QA", True),
+        ("qa", "Asesor en Qatar", False),
+        (".net", "Desarrollador ASP.NET Core", True),
+        (".net", "Técnico en Planeta", False),
+        ("c#", "Programador C# Junior", True),
+        ("java", "Desarrollador Java", True),
+        ("java", "Analista JavaScript", False),
+        ("sql", "Administrador SQL Server", True),
+        ("sql", "Consultor NoSQL", False),
+        ("git", "Manejo de Git", True),
+        ("git", "Digitador", False),
+    ],
+)
+def test_contiene_respeta_las_fronteras_de_palabra(termino, titulo, debe_casar):
+    """`.net` sí debe casar dentro de `asp.net`; `java` no dentro de `javascript`."""
+    assert contiene(normalizar_texto(titulo), termino) is debe_casar
+
+
 def test_termino_excluido_anula_la_relevancia():
     o = _oferta("Asesor Comercial", "Manejo de Python para reportes internos.")
     assert puntuar_relevancia(o, VOCAB) == 0.0
@@ -67,6 +113,14 @@ def test_experiencia_rechaza_por_exceso():
     )
     assert ok is False
     assert "84" in motivo
+
+
+def test_experiencia_no_descarta_por_fragmentos_de_palabra():
+    """`lead` no debe casar dentro de *liderar*, ni `sr.` dentro de otras siglas."""
+    cfg = ConfigExperiencia(terminos_excluidos=["lead", "senior", "sr."])
+    for titulo in ["Desarrollador para liderar el frente web", "Analista de Recursos"]:
+        ok, _ = experiencia_apropiada(_oferta(titulo), cfg, 60)
+        assert ok is True, titulo
 
 
 def test_experiencia_acepta_junior():

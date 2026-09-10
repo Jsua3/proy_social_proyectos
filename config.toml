@@ -33,10 +33,16 @@ excluidos = [
 
 [experiencia]
 # Descartan por exigir un nivel de experiencia demasiado alto.
-# Son datos, no simbolos: coinciden con el texto real de las ofertas.
+# Son datos, no símbolos: coinciden con el texto real de las ofertas.
+#
+# "principal" a secas NO está en la lista a propósito: en español colombiano
+# significa casi siempre "sede principal" o "cajero principal", y descartaría un
+# "Desarrollador - Sede Principal" como si fuera senior. Se usan en su lugar las
+# formas inglesas inequívocas, que son las que aparecen en las fuentes remotas.
 terminos_excluidos = [
   "senior", "sr.", "lead", "lider tecnico", "líder técnico", "arquitecto jefe",
-  "jefe de", "gerente", "director", "head of", "principal", "staff engineer",
+  "jefe de", "gerente", "director", "head of", "staff engineer",
+  "principal engineer", "principal software", "principal developer",
   "coordinador de desarrollo",
 ]
 
