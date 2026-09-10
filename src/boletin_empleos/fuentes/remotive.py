@@ -9,7 +9,8 @@ terminate your API access." Las ofertas vienen con 24 h de retraso por diseño s
 import logging
 from datetime import UTC, datetime
 
-from boletin_empleos.http import crear_cliente, reintentar
+from boletin_empleos.fuentes.comun import fecha_iso
+from boletin_empleos.http import crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
 _log = logging.getLogger(__name__)
@@ -38,9 +39,14 @@ class FuenteRemotive:
             _log.error("remotive: no se pudo obtener la lista de ofertas")
             return []
 
+        datos = json_de(respuesta)
+        if not isinstance(datos, dict):
+            _log.error("remotive: la respuesta no tiene la forma esperada")
+            return []
+
         ahora = datetime.now(UTC)
         ofertas: list[Oferta] = []
-        for bruto in respuesta.json().get("jobs", []):
+        for bruto in datos.get("jobs", []):
             oferta = self._normalizar(bruto, ahora)
             if oferta is not None:
                 ofertas.append(oferta)
@@ -59,17 +65,8 @@ class FuenteRemotive:
                 url=bruto["url"],
                 descripcion=bruto.get("description", ""),
                 recogida_en=ahora,
-                fecha_publicacion=_fecha(bruto.get("publication_date")),
+                fecha_publicacion=fecha_iso(bruto.get("publication_date")),
             )
         except (KeyError, ValueError) as e:
             _log.warning("remotive: oferta descartada por dato inválido: %s", e)
             return None
-
-
-def _fecha(valor: str | None):
-    if not valor:
-        return None
-    try:
-        return datetime.fromisoformat(valor.replace("Z", "+00:00")).date()
-    except ValueError:
-        return None

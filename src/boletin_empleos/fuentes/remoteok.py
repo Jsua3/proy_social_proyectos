@@ -11,7 +11,8 @@ El primer elemento del arreglo es el aviso legal, no una oferta.
 import logging
 from datetime import UTC, datetime
 
-from boletin_empleos.http import crear_cliente, reintentar
+from boletin_empleos.fuentes.comun import fecha_iso
+from boletin_empleos.http import crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
 _log = logging.getLogger(__name__)
@@ -32,7 +33,11 @@ class FuenteRemoteOK:
             _log.error("remoteok: no se pudo obtener la lista de ofertas")
             return []
 
-        datos = respuesta.json()
+        datos = json_de(respuesta)
+        if not isinstance(datos, list):
+            _log.error("remoteok: la respuesta no tiene la forma esperada")
+            return []
+
         ahora = datetime.now(UTC)
         ofertas: list[Oferta] = []
         for bruto in datos:
@@ -56,7 +61,7 @@ class FuenteRemoteOK:
                 url=bruto["url"],
                 descripcion=bruto.get("description", ""),
                 recogida_en=ahora,
-                fecha_publicacion=_fecha(bruto.get("date")),
+                fecha_publicacion=fecha_iso(bruto.get("date")),
                 salario_min=bruto.get("salary_min") or None,
                 salario_max=bruto.get("salary_max") or None,
                 moneda="USD" if bruto.get("salary_min") else None,
@@ -64,12 +69,3 @@ class FuenteRemoteOK:
         except (KeyError, ValueError) as e:
             _log.warning("remoteok: oferta descartada por dato inválido: %s", e)
             return None
-
-
-def _fecha(valor: str | None):
-    if not valor:
-        return None
-    try:
-        return datetime.fromisoformat(valor.replace("Z", "+00:00")).date()
-    except ValueError:
-        return None

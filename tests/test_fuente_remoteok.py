@@ -29,6 +29,17 @@ def test_remoteok_declara_su_permiso_y_atribucion():
 
 
 @respx.mock
-def test_remoteok_devuelve_vacio_si_la_api_falla():
+def test_remoteok_devuelve_vacio_si_la_api_falla(monkeypatch):
+    # Sin esto, los 3 reintentos duermen 1 s + 2 s reales y la suite se arrastra.
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
     respx.get("https://remoteok.com/api").mock(return_value=httpx.Response(500))
+    assert FuenteRemoteOK().obtener() == []
+
+
+@respx.mock
+def test_remoteok_devuelve_vacio_si_el_cuerpo_no_es_json():
+    """Un 200 con HTML — mantenimiento, interstitial de WAF — no debe lanzar excepción."""
+    respx.get("https://remoteok.com/api").mock(
+        return_value=httpx.Response(200, text="<html>Mantenimiento</html>")
+    )
     assert FuenteRemoteOK().obtener() == []
