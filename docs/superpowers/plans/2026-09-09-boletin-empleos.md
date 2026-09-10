@@ -873,6 +873,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import pytest
 import respx
 
 from boletin_empleos.fuentes.spe import FuenteSPE, _a_modalidad, _rango_salarial
@@ -954,6 +955,27 @@ def test_spe_interpreta_el_rango_salarial():
     assert _rango_salarial("Mayor de $15.000.001") == (15_000_001, None)
     assert _rango_salarial("A Convenir") == (None, None)
     assert _rango_salarial(None) == (None, None)
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("cuerpo", "descripcion"),
+    [
+        ({"totalPages": "muchas", "resultados": []}, "totalPages como cadena"),
+        ({"totalPages": 1, "resultados": None}, "resultados nulo"),
+        ({"totalPages": 1, "resultados": {"a": 1}}, "resultados como objeto"),
+        ({"totalPages": 1, "resultados": ["texto plano"]}, "elementos no-dict"),
+        ({"totalPages": -5, "resultados": []}, "totalPages negativo"),
+    ],
+)
+def test_spe_no_lanza_con_json_valido_pero_mal_tipado(cuerpo, descripcion):
+    """Un JSON válido no garantiza tipos correctos. El adaptador nunca debe lanzar."""
+    respx.get(url__startswith="https://www.buscadordeempleo.gov.co/backbue/v1").mock(
+        return_value=httpx.Response(200, json=cuerpo)
+    )
+    assert FuenteSPE(consultas=[{"departamento": "Quindio"}], pausa=0.0).obtener() == [], (
+        descripcion
+    )
 
 
 def test_contexto_ssl_carga_el_intermedio_sin_bajar_la_verificacion():
@@ -1096,7 +1118,7 @@ class FuenteSPE:
         if not isinstance(datos, dict):
             return
         version = datos.get("backVersion")
-        if version != _VERSION_ESPERADA:
+        if version != _VERSION_ESPERADA:  # noqa: SIM102 — el log necesita ambos valores
             _log.warning(
                 "spe: la API cambió de versión (esperada %s, encontrada %s). "
                 "Revisar el contrato del adaptador.",
@@ -1123,8 +1145,19 @@ class FuenteSPE:
             if not isinstance(datos, dict):
                 _log.error("spe: respuesta sin la forma esperada en %s p%d", consulta, pagina)
                 return
-            total_paginas = datos.get("totalPages", 1)
-            yield from datos.get("resultados", [])
+
+            # Un JSON válido no garantiza tipos correctos. Sin estas comprobaciones,
+            # `totalPages` como cadena, `resultados: null` o `resultados` como objeto
+            # propagan TypeError/AttributeError fuera de obtener(), rompiendo el
+            # contrato de que un adaptador nunca lanza.
+            total = datos.get("totalPages", 1)
+            total_paginas = total if isinstance(total, int) and total > 0 else 1
+
+            resultados = datos.get("resultados")
+            if not isinstance(resultados, list):
+                _log.error("spe: 'resultados' no es una lista en %s p%d", consulta, pagina)
+                return
+            yield from (fila for fila in resultados if isinstance(fila, dict))
             pagina += 1
             if self._pausa:
                 time.sleep(self._pausa)
@@ -1229,7 +1262,7 @@ def _rango_salarial(texto: str | None) -> tuple[int | None, int | None]:
 - [ ] **Step 5: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_spe.py -v`
-Expected: PASS — 10 tests
+Expected: PASS — 11 tests
 
 - [ ] **Step 6: Formatear y commitear**
 
@@ -1303,7 +1336,7 @@ def test_magneto_extrae_ofertas_del_listado():
     respx.get(url__startswith="https://www.magneto365.com/co/trabajos/").mock(
         return_value=httpx.Response(200, text=FIXTURE)
     )
-    ofertas = FuenteMagneto(rutas=["/co/trabajos/buscar"]).obtener()
+    ofertas = FuenteMagneto(rutas=["/co/trabajos/buscar"], pausa=0.0).obtener()
 
     assert len(ofertas) >= 15, "la fixture real trae ~20 tarjetas; menos indica selectores rotos"
     o = ofertas[0]
@@ -1333,7 +1366,7 @@ def test_magneto_nunca_pide_urls_con_parametros():
     ruta = respx.get(url__startswith="https://www.magneto365.com/co/trabajos/").mock(
         return_value=httpx.Response(200, text=FIXTURE)
     )
-    FuenteMagneto(rutas=["/co/trabajos/ofertas-empleo-trabajo-remoto"]).obtener()
+    FuenteMagneto(rutas=["/co/trabajos/ofertas-empleo-trabajo-remoto"], pausa=0.0).obtener()
 
     for llamada in ruta.calls:
         assert not llamada.request.url.query, f"URL con parámetros: {llamada.request.url}"
@@ -1347,11 +1380,27 @@ def test_magneto_declara_su_permiso_y_atribucion():
 
 
 @respx.mock
-def test_magneto_devuelve_vacio_si_falla():
+def test_magneto_devuelve_vacio_si_falla(monkeypatch):
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
     respx.get(url__startswith="https://www.magneto365.com/co/trabajos/").mock(
         return_value=httpx.Response(404)
     )
-    assert FuenteMagneto(rutas=["/co/trabajos/ofertas-empleo-trabajo-remoto"]).obtener() == []
+    assert (
+        FuenteMagneto(rutas=["/co/trabajos/ofertas-empleo-trabajo-remoto"], pausa=0.0).obtener()
+        == []
+    )
+
+
+@respx.mock
+def test_magneto_omite_la_ruta_con_parametros_sin_lanzar():
+    """Una ruta mal formada no debe abortar las demás: el adaptador nunca lanza."""
+    respx.get("https://www.magneto365.com/co/trabajos/buscar").mock(
+        return_value=httpx.Response(200, text=FIXTURE)
+    )
+    ofertas = FuenteMagneto(
+        rutas=["/co/trabajos/buscar?utm_source=x", "/co/trabajos/buscar"], pausa=0.0
+    ).obtener()
+    assert ofertas, "la ruta válida debe seguir aportando pese a la inválida"
 ```
 
 - [ ] **Step 3: Ejecutar y verificar que falla**
@@ -1432,7 +1481,14 @@ class FuenteMagneto:
         with crear_cliente(acepta="text/html,application/xhtml+xml") as cliente:
             for ruta in self._rutas:
                 if "?" in ruta:
-                    raise ValueError(f"Magneto prohíbe URLs con parámetros: {ruta}")
+                    # Se omite, no se lanza: una ruta mal formada no debe abortar las
+                    # demás, igual que no lo hace una ruta caída por HTTP. El contrato
+                    # global dice que un adaptador nunca lanza excepción.
+                    _log.error(
+                        "magneto: ruta con parámetros, se omite por respeto a su robots.txt: %s",
+                        ruta,
+                    )
+                    continue
                 # `r=ruta` se liga como argumento por defecto: sin esto ruff marca B023
                 # (función que captura una variable de bucle).
                 respuesta = reintentar(
