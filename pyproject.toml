@@ -1,0 +1,37 @@
+[project]
+name = "boletin-empleos"
+version = "0.1.0"
+description = "Boletín quincenal de empleos para egresados de Ingeniería de Software — CUE Alexander von Humboldt"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.9",
+    "httpx>=0.27",
+    "selectolax>=0.3.21",
+    "jinja2-mjml>=0.1",
+]
+
+[project.scripts]
+boletin = "boletin_empleos.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.7", "respx>=0.21"]
+
+[tool.uv]
+override-dependencies = ["mjml-python>=1.2.4"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/boletin_empleos"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
