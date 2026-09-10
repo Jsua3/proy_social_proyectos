@@ -21,7 +21,18 @@ _LONGITUD_MINIMA_FLEXION = 5
 #
 # Un criterio anterior por longitud no bastaba: `docker` tiene 6 caracteres y
 # `tester` 6, ambos muy por encima de cualquier umbral razonable.
-_TERMINACIONES_DE_AGENTE = ("dor", "or", "ero", "era", "ente", "ante", "ista", "logo", "grafo")
+_TERMINACIONES_DE_AGENTE = (
+    "dor",
+    "or",
+    "ero",
+    "era",
+    "ario",
+    "ente",
+    "ante",
+    "ista",
+    "logo",
+    "grafo",
+)
 
 
 def admite_flexion(termino: str) -> bool:
