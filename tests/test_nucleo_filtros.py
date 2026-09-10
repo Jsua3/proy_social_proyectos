@@ -97,6 +97,39 @@ def test_contiene_respeta_las_fronteras_de_palabra(termino, titulo, debe_casar):
     assert contiene(normalizar_texto(titulo), termino) is debe_casar
 
 
+@pytest.mark.parametrize(
+    "titulo",
+    [
+        "Asesor de Ventas - Tienda Dockers",
+        "Técnico en corte de piezas angulares",
+        "Operario de estructuras angulares en vidrio",
+    ],
+)
+def test_relevancia_no_flexiona_nombres_propios_de_tecnologia(titulo):
+    """`docker` no debe casar en *Dockers* (marca de ropa) ni `angular` en *angulares*.
+
+    La flexión española arregla "Desarrolladora" pero abre estos choques: la longitud
+    del término no basta como criterio, hace falta la lista `sin_flexion`.
+    """
+    vocabulario = Vocabulario(
+        cargos=["desarrollador"],
+        tecnologias=["docker", "angular"],
+        sin_flexion=["docker", "angular"],
+    )
+    assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
+
+
+def test_la_flexion_sigue_activa_para_los_cargos_en_femenino():
+    """Negar la flexión a las tecnologías no debe romper los cargos."""
+    vocabulario = Vocabulario(
+        cargos=["desarrollador", "programador"],
+        tecnologias=["docker"],
+        sin_flexion=["docker"],
+    )
+    assert puntuar_relevancia(_oferta("Desarrolladora Backend"), vocabulario) > 0.35
+    assert puntuar_relevancia(_oferta("Programadoras Python"), vocabulario) > 0.35
+
+
 def test_termino_excluido_anula_la_relevancia():
     o = _oferta("Asesor Comercial", "Manejo de Python para reportes internos.")
     assert puntuar_relevancia(o, VOCAB) == 0.0

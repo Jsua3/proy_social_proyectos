@@ -10,6 +10,9 @@ class Vocabulario(BaseModel):
     cargos: list[str] = Field(default_factory=list)
     tecnologias: list[str] = Field(default_factory=list)
     excluidos: list[str] = Field(default_factory=list)
+    # Términos que no admiten flexión: nombres propios de tecnología que, al
+    # recibir sufijo, chocan con palabras españolas reales (ver config.toml).
+    sin_flexion: list[str] = Field(default_factory=list)
 
 
 class PesosRelevancia(BaseModel):

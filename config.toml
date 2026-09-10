@@ -48,6 +48,20 @@ excluidos = [
   "auxiliar de bodega", "mesero", "vigilante", "conductor",
 ]
 
+# Términos que NO admiten sufijo de flexión española.
+#
+# El emparejamiento permite flexión (femenino y plural) para que "desarrollador"
+# cubra "Desarrolladora Backend". Eso funciona con sustantivos españoles de oficio,
+# pero hace daño con nombres propios de tecnología, que no se flexionan y que al
+# recibir el sufijo chocan con palabras españolas reales. Auditado término por
+# término sobre este vocabulario; cada entrada lleva su motivo:
+sin_flexion = [
+  "docker",     # "Dockers" es una marca de ropa con tiendas en Colombia
+  "angular",    # "angulares" es vocabulario de metalmecánica y construcción
+  "android",    # "androides" es un sustantivo español real
+  "conductor",  # "conductores" eléctricos: excluiría ofertas de hardware o embebidos
+]
+
 [experiencia]
 # Descartan por exigir un nivel de experiencia demasiado alto.
 # Son datos, no símbolos: coinciden con el texto real de las ofertas.
