@@ -4,11 +4,14 @@ import re
 import unicodedata
 from functools import lru_cache
 
-from boletin_empleos.config import Vocabulario
+from boletin_empleos.config import PesosRelevancia, Vocabulario
 from boletin_empleos.modelos import Oferta
 
-_PESO_TITULO = 0.7
-_PESO_DESCRIPCION = 0.3
+# Los acrónimos no se flexionan; los sustantivos españoles sí. Se permite sufijo
+# de flexión solo a términos suficientemente largos que acaben en letra, para que
+# "desarrollador" cubra "desarrolladora" sin que "sre" cubra "sres.".
+_LONGITUD_MINIMA_FLEXION = 5
+_SUFIJOS_FLEXION = r"(?:as|es|os|a|s)?"
 
 
 def normalizar_texto(texto: str) -> str:
@@ -29,19 +32,39 @@ def patron_de(termino: str) -> re.Pattern[str]:
 
     La frontera se exige **solo donde el borde del término es alfanumérico**, para
     que `.net` siga casando dentro de `asp.net` y `c#` siga funcionando.
+
+    A los términos largos que acaban en letra se les permite además un sufijo de
+    flexión española, porque las ofertas colombianas se escriben en femenino y en
+    plural: sin esto, `desarrollador` no casaría dentro de *Desarrolladora Backend*
+    y el filtro descartaría sistemáticamente esas vacantes. Los acrónimos cortos
+    quedan fuera de esa concesión para que `sre` no case dentro de *Sres.*
     """
     inicio = r"(?<![a-z0-9])" if termino[:1].isalnum() else ""
+    flexion = (
+        _SUFIJOS_FLEXION
+        if len(termino) >= _LONGITUD_MINIMA_FLEXION and termino[-1:].isalpha()
+        else ""
+    )
     fin = r"(?![a-z0-9])" if termino[-1:].isalnum() else ""
-    return re.compile(inicio + re.escape(termino) + fin)
+    return re.compile(inicio + re.escape(termino) + flexion + fin)
 
 
 def contiene(texto: str, termino: str) -> bool:
-    """¿Aparece `termino` en `texto` como palabra, no como fragmento?"""
+    """¿Aparece `termino` en `texto` como palabra, no como fragmento?
+
+    **`texto` debe venir ya normalizado** con `normalizar_texto`; el término se
+    normaliza aquí. La asimetría es deliberada: `texto` suele ser una descripción
+    larga que se compara contra decenas de términos, y normalizarla en cada
+    comparación sería desperdicio. Pasar texto crudo devuelve `False` en silencio.
+    """
     return patron_de(normalizar_texto(termino)).search(texto) is not None
 
 
-def puntuar_relevancia(oferta: Oferta, vocabulario: Vocabulario) -> float:
+def puntuar_relevancia(
+    oferta: Oferta, vocabulario: Vocabulario, pesos: PesosRelevancia | None = None
+) -> float:
     """Devuelve 0.0–1.0. Un término excluido anula la oferta por completo."""
+    pesos = pesos or PesosRelevancia()
     titulo = normalizar_texto(oferta.titulo)
     descripcion = normalizar_texto(oferta.descripcion)
     completo = f"{titulo} {descripcion}"
@@ -56,12 +79,14 @@ def puntuar_relevancia(oferta: Oferta, vocabulario: Vocabulario) -> float:
     en_titulo = sum(1 for t in terminos if contiene(titulo, t))
     en_descripcion = sum(1 for t in terminos if contiene(descripcion, t))
 
-    puntaje = _PESO_TITULO * _saturar(en_titulo) + _PESO_DESCRIPCION * _saturar(en_descripcion)
+    puntaje = pesos.peso_titulo * _saturar(en_titulo, pesos) + pesos.peso_descripcion * _saturar(
+        en_descripcion, pesos
+    )
     return round(min(puntaje, 1.0), 4)
 
 
-def _saturar(coincidencias: int) -> float:
+def _saturar(coincidencias: int, pesos: PesosRelevancia) -> float:
     """1 coincidencia ya vale mucho; más coincidencias suman con rendimiento decreciente."""
     if coincidencias <= 0:
         return 0.0
-    return min(1.0, 0.6 + 0.2 * (coincidencias - 1))
+    return min(1.0, pesos.saturacion_base + pesos.saturacion_incremento * (coincidencias - 1))

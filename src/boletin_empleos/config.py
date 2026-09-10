@@ -12,6 +12,19 @@ class Vocabulario(BaseModel):
     excluidos: list[str] = Field(default_factory=list)
 
 
+class PesosRelevancia(BaseModel):
+    """Cómo se pondera una coincidencia al puntuar relevancia.
+
+    Vive en config.toml, no incrustado en Python: estos números deciden si una
+    oferta supera el umbral, y afinar el filtro no debe exigir saber programar.
+    """
+
+    peso_titulo: float = Field(default=0.7, ge=0.0, le=1.0)
+    peso_descripcion: float = Field(default=0.3, ge=0.0, le=1.0)
+    saturacion_base: float = Field(default=0.6, gt=0.0, le=1.0)
+    saturacion_incremento: float = Field(default=0.2, ge=0.0, le=1.0)
+
+
 class ConfigExperiencia(BaseModel):
     terminos_excluidos: list[str] = Field(default_factory=list)
 
@@ -33,6 +46,7 @@ class Config(BaseModel):
     dias_max_antiguedad: int = Field(gt=0)
     max_meses_experiencia: int = 60
     excluir_practicas: bool = True
+    relevancia: PesosRelevancia = Field(default_factory=PesosRelevancia)
     vocabulario: Vocabulario = Field(default_factory=Vocabulario)
     experiencia: ConfigExperiencia = Field(default_factory=ConfigExperiencia)
     legitimidad: UmbralesLegitimidad = Field(default_factory=UmbralesLegitimidad)

@@ -80,6 +80,16 @@ def test_relevancia_no_casa_terminos_dentro_de_otras_palabras(titulo):
         ("sql", "Consultor NoSQL", False),
         ("git", "Manejo de Git", True),
         ("git", "Digitador", False),
+        # Flexión española: las ofertas colombianas se escriben en femenino y plural.
+        ("desarrollador", "Desarrolladora Backend", True),
+        ("programador", "Programadora Python", True),
+        ("desarrollador", "Desarrolladores Senior", True),
+        # ...sin que la concesión abra colisiones nuevas:
+        ("director", "Analista de Directorio Activo", False),
+        ("analista", "Analistica de Datos", False),
+        # Los acrónimos cortos NO se flexionan, para que 'sre' no case en 'Sres.':
+        ("sre", "Gerente de Sres. Clientes", False),
+        ("sre", "Ingeniero SRE", True),
     ],
 )
 def test_contiene_respeta_las_fronteras_de_palabra(termino, titulo, debe_casar):
@@ -115,12 +125,23 @@ def test_experiencia_rechaza_por_exceso():
     assert "84" in motivo
 
 
-def test_experiencia_no_descarta_por_fragmentos_de_palabra():
-    """`lead` no debe casar dentro de *liderar*, ni `sr.` dentro de otras siglas."""
-    cfg = ConfigExperiencia(terminos_excluidos=["lead", "senior", "sr."])
-    for titulo in ["Desarrollador para liderar el frente web", "Analista de Recursos"]:
-        ok, _ = experiencia_apropiada(_oferta(titulo), cfg, 60)
-        assert ok is True, titulo
+@pytest.mark.parametrize(
+    ("titulo", "debe_pasar"),
+    [
+        # Colisiones REALES de subcadena que la frontera debe evitar:
+        ("Analista de Directorio Activo", True),  # 'directorio' contiene 'director'
+        ("Regente de Farmacia", True),  # 'regente' contiene 'gerente'
+        ("Analistica de Datos", True),  # 'analistica' contiene 'analista'
+        # Flexión española: SÍ deben descartarse, aunque no coincidan literalmente:
+        ("Directora de Tecnología", False),
+        ("Gerentes de Proyecto", False),
+    ],
+)
+def test_experiencia_distingue_flexion_de_colision(titulo, debe_pasar):
+    """La frontera debe evitar colisiones sin perder género ni plural del español."""
+    cfg = ConfigExperiencia(terminos_excluidos=["director", "gerente", "analista"])
+    ok, _ = experiencia_apropiada(_oferta(titulo), cfg, 60)
+    assert ok is debe_pasar, titulo
 
 
 def test_experiencia_acepta_junior():
