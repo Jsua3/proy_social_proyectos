@@ -204,7 +204,7 @@ class Decision(StrEnum):
 
 class MotivoDescarte(StrEnum):
     RELEVANCIA = "relevancia"
-    SENIORITY = "seniority"
+    EXPERIENCIA = "experiencia"
     VIGENCIA = "vigencia"
     ENLACE_MUERTO = "enlace_muerto"
     LEGITIMIDAD = "legitimidad"
@@ -1378,8 +1378,9 @@ excluidos = [
   "auxiliar de bodega", "mesero", "vigilante", "conductor",
 ]
 
-[seniority]
-# Descartan por exceso de seniority.
+[experiencia]
+# Descartan por exigir un nivel de experiencia demasiado alto.
+# Son datos, no simbolos: coinciden con el texto real de las ofertas.
 terminos_excluidos = [
   "senior", "sr.", "lead", "lider tecnico", "líder técnico", "arquitecto jefe",
   "jefe de", "gerente", "director", "head of", "principal", "staff engineer",
@@ -1424,7 +1425,7 @@ class Vocabulario(BaseModel):
     excluidos: list[str] = Field(default_factory=list)
 
 
-class ConfigSeniority(BaseModel):
+class ConfigExperiencia(BaseModel):
     terminos_excluidos: list[str] = Field(default_factory=list)
 
 
@@ -1446,7 +1447,7 @@ class Config(BaseModel):
     max_meses_experiencia: int = 60
     excluir_practicas: bool = True
     vocabulario: Vocabulario = Field(default_factory=Vocabulario)
-    seniority: ConfigSeniority = Field(default_factory=ConfigSeniority)
+    experiencia: ConfigExperiencia = Field(default_factory=ConfigExperiencia)
     legitimidad: UmbralesLegitimidad = Field(default_factory=UmbralesLegitimidad)
 
 
@@ -1470,20 +1471,20 @@ git commit -m "feat: configuración externa en config.toml"
 
 ---
 
-### Task 7: Núcleo — relevancia, seniority y vigencia
+### Task 7: Núcleo — relevancia, nivel de experiencia y vigencia
 
 **Files:**
 - Create: `src/boletin_empleos/nucleo/__init__.py`
 - Create: `src/boletin_empleos/nucleo/relevancia.py`
-- Create: `src/boletin_empleos/nucleo/seniority.py`
+- Create: `src/boletin_empleos/nucleo/experiencia.py`
 - Create: `src/boletin_empleos/nucleo/vigencia.py`
 - Create: `tests/test_nucleo_filtros.py`
 
 **Interfaces:**
-- Consumes: `Oferta`, `Vocabulario`, `ConfigSeniority`
+- Consumes: `Oferta`, `Vocabulario`, `ConfigExperiencia`
 - Produces:
   - `puntuar_relevancia(oferta: Oferta, vocabulario: Vocabulario) -> float`
-  - `seniority_apropiado(oferta: Oferta, cfg: ConfigSeniority, max_meses: int) -> tuple[bool, str]`
+  - `experiencia_apropiada(oferta: Oferta, cfg: ConfigExperiencia, max_meses: int) -> tuple[bool, str]`
   - `esta_vigente(oferta: Oferta, hoy: date, dias_max: int) -> tuple[bool, str]`
   - `normalizar_texto(texto: str) -> str`
 
@@ -1493,10 +1494,10 @@ git commit -m "feat: configuración externa en config.toml"
 # tests/test_nucleo_filtros.py
 from datetime import UTC, date, datetime
 
-from boletin_empleos.config import ConfigSeniority, Vocabulario
+from boletin_empleos.config import ConfigExperiencia, Vocabulario
 from boletin_empleos.modelos import Modalidad, Oferta
 from boletin_empleos.nucleo.relevancia import normalizar_texto, puntuar_relevancia
-from boletin_empleos.nucleo.seniority import seniority_apropiado
+from boletin_empleos.nucleo.experiencia import experiencia_apropiada
 from boletin_empleos.nucleo.vigencia import esta_vigente
 
 VOCAB = Vocabulario(
@@ -1545,26 +1546,26 @@ def test_el_titulo_pesa_mas_que_la_descripcion():
     assert puntuar_relevancia(en_titulo, VOCAB) > puntuar_relevancia(en_descripcion, VOCAB)
 
 
-CFG_SENIORITY = ConfigSeniority(terminos_excluidos=["senior", "lead", "jefe de"])
+CFG_EXPERIENCIA = ConfigExperiencia(terminos_excluidos=["senior", "lead", "jefe de"])
 
 
-def test_seniority_rechaza_cargos_senior():
-    ok, motivo = seniority_apropiado(_oferta("Senior Backend Developer"), CFG_SENIORITY, 60)
+def test_experiencia_rechaza_cargos_senior():
+    ok, motivo = experiencia_apropiada(_oferta("Senior Backend Developer"), CFG_EXPERIENCIA, 60)
     assert ok is False
     assert "senior" in motivo
 
 
-def test_seniority_rechaza_por_exceso_de_experiencia():
-    ok, motivo = seniority_apropiado(
-        _oferta("Desarrollador", meses_experiencia=84), CFG_SENIORITY, 60
+def test_experiencia_rechaza_por_exceso():
+    ok, motivo = experiencia_apropiada(
+        _oferta("Desarrollador", meses_experiencia=84), CFG_EXPERIENCIA, 60
     )
     assert ok is False
     assert "84" in motivo
 
 
-def test_seniority_acepta_junior():
-    ok, motivo = seniority_apropiado(
-        _oferta("Desarrollador Junior", meses_experiencia=12), CFG_SENIORITY, 60
+def test_experiencia_acepta_junior():
+    ok, motivo = experiencia_apropiada(
+        _oferta("Desarrollador Junior", meses_experiencia=12), CFG_EXPERIENCIA, 60
     )
     assert ok is True
     assert motivo == ""
@@ -1647,23 +1648,23 @@ def _saturar(coincidencias: int) -> float:
     return min(1.0, 0.6 + 0.2 * (coincidencias - 1))
 ```
 
-- [ ] **Step 4: Implementar seniority y vigencia**
+- [ ] **Step 4: Implementar experiencia y vigencia**
 
 ```python
-# src/boletin_empleos/nucleo/seniority.py
-"""Filtro de seniority: junior a semi-senior. Lógica pura."""
+# src/boletin_empleos/nucleo/experiencia.py
+"""Filtro de nivel de experiencia: junior a semi-senior. Lógica pura."""
 
-from boletin_empleos.config import ConfigSeniority
+from boletin_empleos.config import ConfigExperiencia
 from boletin_empleos.modelos import Oferta
 from boletin_empleos.nucleo.relevancia import normalizar_texto
 
 
-def seniority_apropiado(oferta: Oferta, cfg: ConfigSeniority, max_meses: int) -> tuple[bool, str]:
+def experiencia_apropiada(oferta: Oferta, cfg: ConfigExperiencia, max_meses: int) -> tuple[bool, str]:
     """Devuelve (apropiado, motivo). El motivo va vacío cuando la oferta pasa."""
     titulo = normalizar_texto(oferta.titulo)
     for termino in cfg.terminos_excluidos:
         if normalizar_texto(termino) in titulo:
-            return (False, f"el título indica seniority alto: '{termino}'")
+            return (False, f"el título indica un nivel de experiencia alto: '{termino}'")
 
     if oferta.meses_experiencia is not None and oferta.meses_experiencia > max_meses:
         return (
@@ -1713,7 +1714,7 @@ Expected: PASS — 11 tests
 ```bash
 uv run ruff format . && uv run ruff check --fix .
 git add src/ tests/
-git commit -m "feat: filtros de relevancia, seniority y vigencia"
+git commit -m "feat: filtros de relevancia, nivel de experiencia y vigencia"
 ```
 
 ---
@@ -1961,7 +1962,7 @@ from datetime import UTC, date, datetime
 
 from boletin_empleos.config import (
     Config,
-    ConfigSeniority,
+    ConfigExperiencia,
     UmbralesLegitimidad,
     Vocabulario,
 )
@@ -1985,7 +1986,7 @@ CFG = Config(
         tecnologias=["python"],
         excluidos=["call center"],
     ),
-    seniority=ConfigSeniority(terminos_excluidos=["senior"]),
+    experiencia=ConfigExperiencia(terminos_excluidos=["senior"]),
     legitimidad=UmbralesLegitimidad(
         min_caracteres_descripcion=10,
         frases_descarte=["inversion inicial"],
@@ -2040,11 +2041,11 @@ def test_evaluar_descarta_por_relevancia():
     assert r.descartadas[0].motivo is MotivoDescarte.RELEVANCIA
 
 
-def test_evaluar_descarta_por_seniority():
+def test_evaluar_descarta_por_experiencia():
     r = evaluar(
         [_oferta("spe:3", "spe", "Senior Desarrollador Backend")], set(), CFG, CONFIANZA, HOY
     )
-    assert r.descartadas[0].motivo is MotivoDescarte.SENIORITY
+    assert r.descartadas[0].motivo is MotivoDescarte.EXPERIENCIA
 
 
 def test_evaluar_descarta_practicas_porque_la_audiencia_son_egresados():
@@ -2168,7 +2169,7 @@ from boletin_empleos.modelos import Decision, Evaluacion, MotivoDescarte, Oferta
 from boletin_empleos.nucleo.deduplicacion import deduplicar
 from boletin_empleos.nucleo.legitimidad import puntuar_legitimidad
 from boletin_empleos.nucleo.relevancia import puntuar_relevancia
-from boletin_empleos.nucleo.seniority import seniority_apropiado
+from boletin_empleos.nucleo.experiencia import experiencia_apropiada
 from boletin_empleos.nucleo.vigencia import esta_vigente
 
 _UMBRAL_LEGITIMIDAD = 0.45
@@ -2192,7 +2193,7 @@ def evaluar(
         "ya_enviadas": 0,
         "duplicadas": 0,
         "descartadas_relevancia": 0,
-        "descartadas_seniority": 0,
+        "descartadas_experiencia": 0,
         "descartadas_vigencia": 0,
         "descartadas_legitimidad": 0,
         "descartadas_practica": 0,
@@ -2243,12 +2244,12 @@ def evaluar(
             _descartar(MotivoDescarte.ES_PRACTICA, ["es plaza de práctica, no empleo"])
             continue
 
-        apropiado, motivo_seniority = seniority_apropiado(
-            oferta, cfg.seniority, cfg.max_meses_experiencia
+        apropiado, motivo_experiencia = experiencia_apropiada(
+            oferta, cfg.experiencia, cfg.max_meses_experiencia
         )
         if not apropiado:
-            conteos["descartadas_seniority"] += 1
-            _descartar(MotivoDescarte.SENIORITY, [motivo_seniority])
+            conteos["descartadas_experiencia"] += 1
+            _descartar(MotivoDescarte.EXPERIENCIA, [motivo_experiencia])
             continue
 
         vigente, motivo_vigencia = esta_vigente(oferta, hoy, cfg.dias_max_antiguedad)
@@ -3123,7 +3124,7 @@ _PLANTILLAS = Path(__file__).parent / "plantillas"
 # Solo estos motivos llegan al apéndice del boletín (spec §8.6).
 _MOTIVOS_VISIBLES = {
     MotivoDescarte.LEGITIMIDAD,
-    MotivoDescarte.SENIORITY,
+    MotivoDescarte.EXPERIENCIA,
     MotivoDescarte.VIGENCIA,
     MotivoDescarte.ENLACE_MUERTO,
 }
