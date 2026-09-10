@@ -128,8 +128,10 @@ def test_experiencia_rechaza_por_exceso():
 @pytest.mark.parametrize(
     ("titulo", "debe_pasar"),
     [
-        # Colisiones REALES de subcadena que la frontera debe evitar:
-        ("Analista de Directorio Activo", True),  # 'directorio' contiene 'director'
+        # Colisiones REALES de subcadena que la frontera debe evitar.
+        # Ojo: el título NO debe contener ninguno de los términos excluidos por sí
+        # mismo, o el caso se contradice — por eso "Soporte de", no "Analista de".
+        ("Soporte de Directorio Activo", True),  # 'directorio' contiene 'director'
         ("Regente de Farmacia", True),  # 'regente' contiene 'gerente'
         ("Analistica de Datos", True),  # 'analistica' contiene 'analista'
         # Flexión española: SÍ deben descartarse, aunque no coincidan literalmente:
