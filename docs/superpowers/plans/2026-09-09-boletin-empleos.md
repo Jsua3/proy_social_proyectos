@@ -1262,7 +1262,7 @@ def _rango_salarial(texto: str | None) -> tuple[int | None, int | None]:
 - [ ] **Step 5: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_spe.py -v`
-Expected: PASS — 11 tests
+Expected: PASS — 15 tests
 
 - [ ] **Step 6: Formatear y commitear**
 
@@ -1348,8 +1348,11 @@ def test_magneto_extrae_ofertas_del_listado():
 
 
 @respx.mock
-def test_magneto_una_ruta_caida_no_tumba_las_demas():
+def test_magneto_una_ruta_caida_no_tumba_las_demas(monkeypatch):
     """La ruta de trabajo remoto devuelve HTTP 500 desde el servidor de Magneto."""
+    # `pausa=0.0` solo elimina la espera ENTRE rutas; el retroceso de `reintentar`
+    # es aparte y sin este mock cuesta 3 s reales.
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
     respx.get("https://www.magneto365.com/co/trabajos/rota").mock(
         return_value=httpx.Response(500)
     )
