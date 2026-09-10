@@ -1028,21 +1028,29 @@ canónicas y la instrucción *"Evitar URLs con parámetros"*. Su `robots.txt` co
 
 ```bash
 curl -s -A "BoletinEmpleosCUE/1.0 (+https://github.com/Jsua3/proy_social_proyectos; coorproyeccioning@cue.edu.co)" \
-  "https://www.magneto365.com/co/trabajos/ofertas-empleo-trabajo-remoto" \
+  "https://www.magneto365.com/co/trabajos/buscar" \
   -o tests/fixtures/magneto_listado.html
-uv run python -c "
+uv run python -c $'
 from selectolax.parser import HTMLParser
-h = HTMLParser(open('tests/fixtures/magneto_listado.html',encoding='utf-8').read())
-enlaces = [a.attributes.get('href','') for a in h.css('a') if '/trabajos/' in (a.attributes.get('href') or '')]
-print('enlaces a vacantes:', len(enlaces))
-for e in enlaces[:10]: print('  ', e)
-"
+h = HTMLParser(open("tests/fixtures/magneto_listado.html",encoding="utf-8").read())
+tarjetas = [a for a in h.css("article") if a.css_first("a[href*=\\"/co/empleos/\\"]")]
+print("tarjetas de vacante:", len(tarjetas))
+for c in tarjetas[:3]: print("  ", c.css_first("h2").text(strip=True)[:60])
+'
 ```
 
-**Nota para el implementador:** el selector CSS exacto depende del marcado que devuelva Magneto hoy.
-Inspecciona la fixture descargada y ajusta `_SEL_TARJETA`, `_SEL_TITULO` y `_SEL_EMPRESA` en el paso 4
-a lo que realmente exista. El test se escribe **contra la fixture**, así que fallará de forma clara si
-los selectores no coinciden.
+Expected: ~20 tarjetas, cada una con su título.
+
+**Estructura verificada el 9/09/2026 — no hace falta investigarla.** Las vacantes de Magneto viven
+en `/co/empleos/<slug>`, **no** en `/co/trabajos/` (esa es la ruta del listado, no de la vacante).
+Un filtro por `/trabajos/` descartaría el 100 % de las ofertas.
+
+Cada tarjeta es un `<article>` que contiene un enlace a `/co/empleos/` y un `<h2>` con el título:
+21 de 21 tarjetas cumplen ambas. El texto de la tarjeta viene segmentado de forma estable como
+`título | empresa | tipo de contrato | salario | ubicación | [urgencia]`.
+
+**No uses las clases CSS de Magneto** (`mg_job_card_desktop_magneto-ui-card-jobs_13c81`): llevan
+hash de CSS-modules y cambian en cada despliegue suyo.
 
 - [ ] **Step 2: Escribir el test que falla**
 
@@ -1063,14 +1071,28 @@ def test_magneto_extrae_ofertas_del_listado():
     respx.get(url__startswith="https://www.magneto365.com/co/trabajos/").mock(
         return_value=httpx.Response(200, text=FIXTURE)
     )
-    ofertas = FuenteMagneto(rutas=["/co/trabajos/ofertas-empleo-trabajo-remoto"]).obtener()
+    ofertas = FuenteMagneto(rutas=["/co/trabajos/buscar"]).obtener()
 
-    assert ofertas, "la fixture debe producir al menos una oferta; revisa los selectores"
+    assert len(ofertas) >= 15, "la fixture real trae ~20 tarjetas; menos indica selectores rotos"
     o = ofertas[0]
     assert o.fuente == "magneto"
     assert o.pais == "CO"
     assert o.titulo.strip()
-    assert str(o.url).startswith("https://www.magneto365.com")
+    assert str(o.url).startswith("https://www.magneto365.com/co/empleos/")
+    assert o.empresa, "la empresa sale del segundo segmento del texto de la tarjeta"
+
+
+@respx.mock
+def test_magneto_una_ruta_caida_no_tumba_las_demas():
+    """La ruta de trabajo remoto devuelve HTTP 500 desde el servidor de Magneto."""
+    respx.get("https://www.magneto365.com/co/trabajos/rota").mock(
+        return_value=httpx.Response(500)
+    )
+    respx.get("https://www.magneto365.com/co/trabajos/buscar").mock(
+        return_value=httpx.Response(200, text=FIXTURE)
+    )
+    ofertas = FuenteMagneto(rutas=["/co/trabajos/rota", "/co/trabajos/buscar"], pausa=0.0).obtener()
+    assert ofertas, "una ruta caída no debe impedir que las demás aporten"
 
 
 @respx.mock
@@ -1130,19 +1152,30 @@ from boletin_empleos.modelos import Modalidad, Oferta
 _log = logging.getLogger(__name__)
 _ORIGEN = "https://www.magneto365.com"
 
-# Rutas canónicas listadas por el propio llms.txt de Magneto.
+# Rutas canónicas del llms.txt de Magneto, VERIFICADAS el 9/09/2026 (todas HTTP 200).
+# `/co/trabajos/ofertas-empleo-trabajo-remoto` se excluye a propósito: devuelve HTTP 500
+# desde el servidor de Magneto, no por culpa de nuestro agente. Si lo arreglan, se añade.
 RUTAS_POR_DEFECTO = [
-    "/co/trabajos/ofertas-empleo-trabajo-remoto",
+    "/co/trabajos/buscar",
     "/co/trabajos/ofertas-empleo-en-bogota",
     "/co/trabajos/ofertas-empleo-en-medellin",
     "/co/trabajos/ofertas-empleo-en-pereira",
 ]
 
-# Ajustar contra la fixture descargada en el paso 1 de esta tarea.
-_SEL_TARJETA = "article, li[class*=job], div[class*=job-card]"
-_SEL_TITULO = "h2, h3, [class*=title]"
-_SEL_EMPRESA = "[class*=company], [class*=empresa]"
-_SEL_UBICACION = "[class*=location], [class*=ubicacion], [class*=city]"
+# Selectores verificados contra el HTML real de Magneto el 9/09/2026: cada vacante es un
+# <article> que contiene un enlace a /co/empleos/<slug> y un <h2> con el título — 21 de 21
+# tarjetas cumplen ambas condiciones. Deliberadamente NO se usan las clases
+# `mg_job_card_desktop_magneto-ui-card-jobs_13c81`: llevan hash de CSS-modules y cambian
+# en cada despliegue suyo.
+_SEL_TARJETA = "article"
+_SEL_ENLACE = 'a[href*="/co/empleos/"]'
+_SEL_TITULO = "h2"
+
+# El texto de la tarjeta viene segmentado de forma estable:
+#   [0] título · [1] empresa · [2] tipo de contrato · [3] salario · [4] ubicación · [5] urgencia
+_IDX_EMPRESA = 1
+_IDX_UBICACION = 4
+_MIN_SEGMENTOS, _MAX_SEGMENTOS = 4, 8
 
 
 class FuenteMagneto:
@@ -1187,55 +1220,58 @@ class FuenteMagneto:
     def _extraer(self, html: str, ahora: datetime):
         arbol = HTMLParser(html)
         for tarjeta in arbol.css(_SEL_TARJETA):
-            enlace = tarjeta.css_first("a[href]")
+            enlace = tarjeta.css_first(_SEL_ENLACE)
             titulo = tarjeta.css_first(_SEL_TITULO)
             if enlace is None or titulo is None:
                 continue
+
             href = enlace.attributes.get("href") or ""
-            if "/trabajos/" not in href:
-                continue
-            url = href if href.startswith("http") else f"{_ORIGEN}{href}"
-            url = url.split("?")[0]
+            url = (href if href.startswith("http") else f"{_ORIGEN}{href}").split("?")[0]
+            segmentos = _segmentos(tarjeta)
             try:
                 yield Oferta(
                     id=f"magneto:{url.rstrip('/').rsplit('/', 1)[-1]}",
                     fuente=self.nombre,
                     titulo=titulo.text(strip=True),
-                    empresa=_texto(tarjeta, _SEL_EMPRESA),
-                    ubicacion=_texto(tarjeta, _SEL_UBICACION),
+                    empresa=_segmento(segmentos, _IDX_EMPRESA),
+                    ubicacion=_segmento(segmentos, _IDX_UBICACION),
                     pais="CO",
                     modalidad=Modalidad.PRESENCIAL,
                     url=url,
-                    descripcion=tarjeta.text(strip=True)[:2000],
+                    descripcion=tarjeta.text(separator=" · ", strip=True)[:2000],
                     recogida_en=ahora,
                 )
             except ValueError as e:
                 _log.warning("magneto: tarjeta descartada: %s", e)
 
 
-def _texto(nodo, selector: str) -> str | None:
-    encontrado = nodo.css_first(selector)
-    return encontrado.text(strip=True) if encontrado else None
+def _segmentos(tarjeta) -> list[str]:
+    """Segmentos de texto de la tarjeta, solo si su número es el esperado.
+
+    Una tarjeta con un número anómalo de segmentos no se descarta: conserva título y
+    enlace, y deja empresa y ubicación en None. Es preferible una oferta con datos
+    incompletos a perder la oferta.
+    """
+    partes = [p.strip() for p in tarjeta.text(separator="|", strip=True).split("|") if p.strip()]
+    return partes if _MIN_SEGMENTOS <= len(partes) <= _MAX_SEGMENTOS else []
+
+
+def _segmento(segmentos: list[str], indice: int) -> str | None:
+    return segmentos[indice] if indice < len(segmentos) else None
 ```
 
-- [ ] **Step 5: Ajustar selectores contra la fixture hasta que el test pase**
+- [ ] **Step 5: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_magneto.py -v`
+Expected: PASS — 5 tests
 
-Si `test_magneto_extrae_ofertas_del_listado` falla con la lista vacía, inspecciona la fixture:
+Los selectores ya están verificados contra el HTML real, así que esto debería pasar a la primera.
+Si `test_magneto_extrae_ofertas_del_listado` falla porque salieron menos de 15 ofertas, significa
+que Magneto cambió su marcado desde el 9/09/2026. Diagnostica contando `article`, cuántos tienen
+un enlace a `/co/empleos/` y cuántos tienen `<h2>`.
 
-```bash
-uv run python -c "
-from selectolax.parser import HTMLParser
-h = HTMLParser(open('tests/fixtures/magneto_listado.html',encoding='utf-8').read())
-for sel in ['article','li','div[class*=card]','div[class*=job]','div[class*=vacante]']:
-    print(sel, '->', len(h.css(sel)))
-"
-```
-
-Ajusta `_SEL_TARJETA`, `_SEL_TITULO`, `_SEL_EMPRESA` y `_SEL_UBICACION` con lo que encuentres. Repite hasta PASS.
-
-Expected: PASS — 4 tests
+Si el marcado cambió, repórtalo como DONE_WITH_CONCERNS con lo que encontraste: es información que
+el controlador necesita, no algo que debas resolver adivinando.
 
 - [ ] **Step 6: Formatear y commitear**
 
@@ -3892,8 +3928,9 @@ ensamblaje. Las tareas 2 a 5 son independientes entre sí; las demás dependen d
 paso. Si una fuente cambió su formato desde el 9 de septiembre de 2026, el test lo dirá con claridad —
 que es exactamente lo que queremos.
 
-**Task 5 (Magneto) tiene selectores CSS por confirmar.** Es la única tarea donde el implementador debe
-inspeccionar la fixture y ajustar. Está señalado en sus pasos 1 y 5.
+**Task 5 (Magneto) ya no tiene incógnitas.** Sus selectores se verificaron contra el HTML real el
+9/09/2026, y su ruta rota (`ofertas-empleo-trabajo-remoto`, HTTP 500 en el servidor de Magneto)
+quedó excluida. Ninguna tarea de este plan requiere ya trabajo de investigación.
 
 **No agregues fuentes sin verificar su `robots.txt` y sus términos.** Es la restricción central de este
 diseño, no una recomendación.
