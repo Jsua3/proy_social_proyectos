@@ -1677,6 +1677,20 @@ excluidos = [
   "auxiliar de bodega", "mesero", "vigilante", "conductor",
 ]
 
+# Términos que NO admiten sufijo de flexión española.
+#
+# El emparejamiento permite flexión (femenino y plural) para que "desarrollador"
+# cubra "Desarrolladora Backend". Eso funciona con sustantivos españoles de oficio,
+# pero hace daño con nombres propios de tecnología, que no se flexionan y que al
+# recibir el sufijo chocan con palabras españolas reales. Auditado término por
+# término sobre este vocabulario; cada entrada lleva su motivo:
+sin_flexion = [
+  "docker",     # "Dockers" es una marca de ropa con tiendas en Colombia
+  "angular",    # "angulares" es vocabulario de metalmecánica y construcción
+  "android",    # "androides" es un sustantivo español real
+  "conductor",  # "conductores" eléctricos: excluiría ofertas de hardware o embebidos
+]
+
 [experiencia]
 # Descartan por exigir un nivel de experiencia demasiado alto.
 # Son datos, no símbolos: coinciden con el texto real de las ofertas.
@@ -1728,6 +1742,9 @@ class Vocabulario(BaseModel):
     cargos: list[str] = Field(default_factory=list)
     tecnologias: list[str] = Field(default_factory=list)
     excluidos: list[str] = Field(default_factory=list)
+    # Términos que no admiten flexión: nombres propios de tecnología que, al
+    # recibir sufijo, chocan con palabras españolas reales (ver config.toml).
+    sin_flexion: list[str] = Field(default_factory=list)
 
 
 class PesosRelevancia(BaseModel):
@@ -1910,6 +1927,39 @@ def test_contiene_respeta_las_fronteras_de_palabra(termino, titulo, debe_casar):
     assert contiene(normalizar_texto(titulo), termino) is debe_casar
 
 
+@pytest.mark.parametrize(
+    "titulo",
+    [
+        "Asesor de Ventas - Tienda Dockers",
+        "Técnico en corte de piezas angulares",
+        "Operario de estructuras angulares en vidrio",
+    ],
+)
+def test_relevancia_no_flexiona_nombres_propios_de_tecnologia(titulo):
+    """`docker` no debe casar en *Dockers* (marca de ropa) ni `angular` en *angulares*.
+
+    La flexión española arregla "Desarrolladora" pero abre estos choques: la longitud
+    del término no basta como criterio, hace falta la lista `sin_flexion`.
+    """
+    vocabulario = Vocabulario(
+        cargos=["desarrollador"],
+        tecnologias=["docker", "angular"],
+        sin_flexion=["docker", "angular"],
+    )
+    assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
+
+
+def test_la_flexion_sigue_activa_para_los_cargos_en_femenino():
+    """Negar la flexión a las tecnologías no debe romper los cargos."""
+    vocabulario = Vocabulario(
+        cargos=["desarrollador", "programador"],
+        tecnologias=["docker"],
+        sin_flexion=["docker"],
+    )
+    assert puntuar_relevancia(_oferta("Desarrolladora Backend"), vocabulario) > 0.35
+    assert puntuar_relevancia(_oferta("Programadoras Python"), vocabulario) > 0.35
+
+
 def test_termino_excluido_anula_la_relevancia():
     o = _oferta("Asesor Comercial", "Manejo de Python para reportes internos.")
     assert puntuar_relevancia(o, VOCAB) == 0.0
@@ -2022,8 +2072,8 @@ def normalizar_texto(texto: str) -> str:
     return " ".join(sin_tildes.lower().split())
 
 
-@lru_cache(maxsize=512)
-def patron_de(termino: str) -> re.Pattern[str]:
+@lru_cache(maxsize=1024)
+def patron_de(termino: str, permitir_flexion: bool = True) -> re.Pattern[str]:
     """Compila un término del vocabulario exigiendo frontera de palabra.
 
     Buscar por subcadena rompe el filtro: `ios` casa dentro de *negocios*,
@@ -2039,26 +2089,35 @@ def patron_de(termino: str) -> re.Pattern[str]:
     plural: sin esto, `desarrollador` no casaría dentro de *Desarrolladora Backend*
     y el filtro descartaría sistemáticamente esas vacantes. Los acrónimos cortos
     quedan fuera de esa concesión para que `sre` no case dentro de *Sres.*
+
+    La longitud no basta: `docker` y `angular` superan el umbral pero al flexionarse
+    chocan con *Dockers* (marca de ropa) y *angulares* (metalmecánica). Por eso el
+    llamador puede negar la flexión término por término con `permitir_flexion`,
+    alimentado desde la lista `sin_flexion` de `config.toml`.
     """
     inicio = r"(?<![a-z0-9])" if termino[:1].isalnum() else ""
     flexion = (
         _SUFIJOS_FLEXION
-        if len(termino) >= _LONGITUD_MINIMA_FLEXION and termino[-1:].isalpha()
+        if permitir_flexion
+        and len(termino) >= _LONGITUD_MINIMA_FLEXION
+        and termino[-1:].isalpha()
         else ""
     )
     fin = r"(?![a-z0-9])" if termino[-1:].isalnum() else ""
     return re.compile(inicio + re.escape(termino) + flexion + fin)
 
 
-def contiene(texto: str, termino: str) -> bool:
-    """¿Aparece `termino` en `texto` como palabra, no como fragmento?
+def contiene(texto_normalizado: str, termino: str, permitir_flexion: bool = True) -> bool:
+    """¿Aparece `termino` en `texto_normalizado` como palabra, no como fragmento?
 
-    **`texto` debe venir ya normalizado** con `normalizar_texto`; el término se
-    normaliza aquí. La asimetría es deliberada: `texto` suele ser una descripción
-    larga que se compara contra decenas de términos, y normalizarla en cada
-    comparación sería desperdicio. Pasar texto crudo devuelve `False` en silencio.
+    El primer parámetro se llama así a propósito: **debe venir ya normalizado** con
+    `normalizar_texto`, mientras que el término se normaliza aquí. La asimetría es
+    deliberada —el texto suele ser una descripción larga que se compara contra
+    decenas de términos, y normalizarla en cada comparación sería desperdicio— y el
+    nombre la hace evidente en cada punto de llamada. Pasar texto crudo devuelve
+    `False` en silencio.
     """
-    return patron_de(normalizar_texto(termino)).search(texto) is not None
+    return patron_de(normalizar_texto(termino), permitir_flexion).search(texto_normalizado) is not None
 
 
 def puntuar_relevancia(
@@ -2070,15 +2129,20 @@ def puntuar_relevancia(
     descripcion = normalizar_texto(oferta.descripcion)
     completo = f"{titulo} {descripcion}"
 
-    if any(contiene(completo, e) for e in vocabulario.excluidos):
+    sin_flexion = {normalizar_texto(s) for s in vocabulario.sin_flexion}
+
+    def flexionable(termino: str) -> bool:
+        return normalizar_texto(termino) not in sin_flexion
+
+    if any(contiene(completo, e, flexionable(e)) for e in vocabulario.excluidos):
         return 0.0
 
     terminos = vocabulario.cargos + vocabulario.tecnologias
     if not terminos:
         return 0.0
 
-    en_titulo = sum(1 for t in terminos if contiene(titulo, t))
-    en_descripcion = sum(1 for t in terminos if contiene(descripcion, t))
+    en_titulo = sum(1 for t in terminos if contiene(titulo, t, flexionable(t)))
+    en_descripcion = sum(1 for t in terminos if contiene(descripcion, t, flexionable(t)))
 
     puntaje = pesos.peso_titulo * _saturar(en_titulo, pesos) + pesos.peso_descripcion * _saturar(
         en_descripcion, pesos
