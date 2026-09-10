@@ -32,6 +32,10 @@ packages = ["src/boletin_empleos"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# Ruff formatea los bloques de Python embebidos en Markdown. Sin esta exclusión,
+# `ruff format .` reescribe el propio plan y el spec en cada tarea, metiendo
+# documentos del controlador dentro de los commits de los implementadores.
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
