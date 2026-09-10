@@ -1677,18 +1677,19 @@ excluidos = [
   "auxiliar de bodega", "mesero", "vigilante", "conductor",
 ]
 
-# Términos que NO admiten sufijo de flexión española.
+# Términos que NO admiten sufijo de flexión española, PESE a ser sustantivos de agente.
 #
-# El emparejamiento permite flexión (femenino y plural) para que "desarrollador"
-# cubra "Desarrolladora Backend". Eso funciona con sustantivos españoles de oficio,
-# pero hace daño con nombres propios de tecnología, que no se flexionan y que al
-# recibir el sufijo chocan con palabras españolas reales. Auditado término por
-# término sobre este vocabulario; cada entrada lleva su motivo:
+# El emparejamiento flexiona (femenino y plural) para que "desarrollador" cubra
+# "Desarrolladora Backend", y decide quién se flexiona por MORFOLOGÍA: solo los
+# sustantivos de agente (-dor, -or, -ero, -ente, -ista...). Esa regla ya deja fuera
+# sola a las tecnologías —"docker", "angular", "android", "tester"— sin necesidad
+# de enumerarlas.
+#
+# Esta lista es solo para los casos en que la morfología acierta pero el resultado
+# colisiona igual. Hoy hay uno:
 sin_flexion = [
-  "docker",     # "Dockers" es una marca de ropa con tiendas en Colombia
-  "angular",    # "angulares" es vocabulario de metalmecánica y construcción
-  "android",    # "androides" es un sustantivo español real
-  "conductor",  # "conductores" eléctricos: excluiría ofertas de hardware o embebidos
+  "conductor",  # es sustantivo de agente, pero "conductores" también son cables:
+                # excluiría ofertas legítimas de hardware o sistemas embebidos
 ]
 
 [experiencia]
@@ -1834,7 +1835,12 @@ import pytest
 
 from boletin_empleos.config import ConfigExperiencia, Vocabulario
 from boletin_empleos.modelos import Modalidad, Oferta
-from boletin_empleos.nucleo.relevancia import contiene, normalizar_texto, puntuar_relevancia
+from boletin_empleos.nucleo.relevancia import (
+    admite_flexion,
+    contiene,
+    normalizar_texto,
+    puntuar_relevancia,
+)
 from boletin_empleos.nucleo.experiencia import experiencia_apropiada
 from boletin_empleos.nucleo.vigencia import esta_vigente
 
@@ -1928,36 +1934,92 @@ def test_contiene_respeta_las_fronteras_de_palabra(termino, titulo, debe_casar):
 
 
 @pytest.mark.parametrize(
+    ("termino", "esperado"),
+    [
+        # Sustantivos de agente: SÍ se flexionan.
+        ("desarrollador", True),
+        ("programador", True),
+        ("vendedor", True),
+        ("director", True),
+        ("gerente", True),
+        ("analista", True),
+        ("mesero", True),
+        ("vigilante", True),
+        # Nombres propios de tecnología: NO. Cada uno colisionaba de verdad.
+        ("docker", False),  # "Dockers", marca de ropa
+        ("angular", False),  # "angulares", metalmecánica
+        ("android", False),  # "androides"
+        ("tester", False),  # "testeros", mueblería y colchonería
+        ("python", False),
+        ("kubernetes", False),
+        # Acrónimos cortos: tampoco.
+        ("ios", False),
+        ("qa", False),
+        ("sre", False),
+        # Compuestos: la flexión iría al final de la frase y no serviría.
+        ("ingeniero de sistemas", False),
+    ],
+)
+def test_solo_se_flexionan_los_sustantivos_de_agente(termino, esperado):
+    """La regla es morfológica, no una lista de excepciones que haya que auditar.
+
+    Un criterio por longitud no bastaba: `docker` y `tester` tienen 6 caracteres.
+    """
+    assert admite_flexion(termino) is esperado
+
+
+@pytest.mark.parametrize(
     "titulo",
     [
         "Asesor de Ventas - Tienda Dockers",
         "Técnico en corte de piezas angulares",
         "Operario de estructuras angulares en vidrio",
+        "Ensamblador de Testeros para Fábrica de Colchones",
+        "Operario de Producción - Testeros en madera",
     ],
 )
 def test_relevancia_no_flexiona_nombres_propios_de_tecnologia(titulo):
-    """`docker` no debe casar en *Dockers* (marca de ropa) ni `angular` en *angulares*.
+    """`docker` no casa en *Dockers*, ni `angular` en *angulares*, ni `tester` en *testeros*.
 
-    La flexión española arregla "Desarrolladora" pero abre estos choques: la longitud
-    del término no basta como criterio, hace falta la lista `sin_flexion`.
+    Los tres son palabras españolas reales de mueblería, metalmecánica y comercio.
+    Ninguno está en `sin_flexion`: los excluye la morfología, no una lista.
     """
     vocabulario = Vocabulario(
-        cargos=["desarrollador"],
+        cargos=["desarrollador", "tester"],
         tecnologias=["docker", "angular"],
-        sin_flexion=["docker", "angular"],
     )
     assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
 
 
 def test_la_flexion_sigue_activa_para_los_cargos_en_femenino():
     """Negar la flexión a las tecnologías no debe romper los cargos."""
-    vocabulario = Vocabulario(
-        cargos=["desarrollador", "programador"],
-        tecnologias=["docker"],
-        sin_flexion=["docker"],
-    )
+    vocabulario = Vocabulario(cargos=["desarrollador", "programador"], tecnologias=["docker"])
     assert puntuar_relevancia(_oferta("Desarrolladora Backend"), vocabulario) > 0.35
     assert puntuar_relevancia(_oferta("Programadoras Python"), vocabulario) > 0.35
+
+
+def test_negar_la_flexion_no_es_negar_el_termino():
+    """`docker` y `tester` deben seguir casando en su forma exacta."""
+    vocabulario = Vocabulario(cargos=["desarrollador", "tester"], tecnologias=["docker", "angular"])
+    assert puntuar_relevancia(_oferta("Desarrollador Docker y Kubernetes"), vocabulario) > 0.35
+    assert puntuar_relevancia(_oferta("Tester de Software"), vocabulario) > 0.35
+    assert puntuar_relevancia(_oferta("Ingeniero Angular"), vocabulario) > 0.35
+
+
+def test_sin_flexion_cubre_el_agente_que_colisiona_igual():
+    """`conductor` es sustantivo de agente, pero "conductores" también son cables."""
+    vocabulario = Vocabulario(
+        cargos=["desarrollador"],
+        tecnologias=["python"],
+        excluidos=["conductor"],
+        sin_flexion=["conductor"],
+    )
+    # Una oferta de embebidos que mencione conductores eléctricos NO debe anularse.
+    puntaje = puntuar_relevancia(
+        _oferta("Desarrollador de firmware", "Diseño de conductores eléctricos en Python."),
+        vocabulario,
+    )
+    assert puntaje > 0.35
 
 
 def test_termino_excluido_anula_la_relevancia():
@@ -2058,11 +2120,31 @@ from functools import lru_cache
 from boletin_empleos.config import PesosRelevancia, Vocabulario
 from boletin_empleos.modelos import Oferta
 
-# Los acrónimos no se flexionan; los sustantivos españoles sí. Se permite sufijo
-# de flexión solo a términos suficientemente largos que acaben en letra, para que
-# "desarrollador" cubra "desarrolladora" sin que "sre" cubra "sres.".
-_LONGITUD_MINIMA_FLEXION = 5
 _SUFIJOS_FLEXION = r"(?:as|es|os|a|s)?"
+_LONGITUD_MINIMA_FLEXION = 5
+
+# En español solo se flexionan los SUSTANTIVOS DE AGENTE, y tienen terminaciones
+# características. Esto no es una lista de excepciones que haya que auditar: es
+# morfología, y por eso se sostiene ante vocabulario nuevo.
+#
+# Deja fuera automáticamente `docker` (-er), `angular` (-ar), `android` (-id) y
+# `tester` (-er), que al flexionarse chocaban con *Dockers* (marca de ropa),
+# *angulares* (metalmecánica), *androides* y *testeros* (mueblería). Y deja fuera
+# las 32 tecnologías del vocabulario, que son nombres propios.
+#
+# Un criterio anterior por longitud no bastaba: `docker` tiene 6 caracteres y
+# `tester` 6, ambos muy por encima de cualquier umbral razonable.
+_TERMINACIONES_DE_AGENTE = ("dor", "or", "ero", "era", "ente", "ante", "ista", "logo", "grafo")
+
+
+def admite_flexion(termino: str) -> bool:
+    """¿Es `termino` un sustantivo de agente español, que se flexiona?
+
+    Se mira la última palabra: "ingeniero de datos" no se flexiona al final, pero
+    "desarrollador" sí. La longitud mínima protege de terminaciones accidentales.
+    """
+    ultima = termino.split()[-1] if termino.split() else termino
+    return len(ultima) >= _LONGITUD_MINIMA_FLEXION and ultima.endswith(_TERMINACIONES_DE_AGENTE)
 
 
 def normalizar_texto(texto: str) -> str:
@@ -2090,19 +2172,14 @@ def patron_de(termino: str, permitir_flexion: bool = True) -> re.Pattern[str]:
     y el filtro descartaría sistemáticamente esas vacantes. Los acrónimos cortos
     quedan fuera de esa concesión para que `sre` no case dentro de *Sres.*
 
-    La longitud no basta: `docker` y `angular` superan el umbral pero al flexionarse
-    chocan con *Dockers* (marca de ropa) y *angulares* (metalmecánica). Por eso el
-    llamador puede negar la flexión término por término con `permitir_flexion`,
-    alimentado desde la lista `sin_flexion` de `config.toml`.
+    Quién se flexiona lo decide `admite_flexion`, por morfología: solo los
+    sustantivos de agente. El parámetro `permitir_flexion` es la escotilla de
+    escape para los pocos casos en que la morfología acierta pero el resultado
+    colisiona igual — `conductor` es sustantivo de agente, pero "conductores"
+    también son cables. Se alimenta de la lista `sin_flexion` de `config.toml`.
     """
     inicio = r"(?<![a-z0-9])" if termino[:1].isalnum() else ""
-    flexion = (
-        _SUFIJOS_FLEXION
-        if permitir_flexion
-        and len(termino) >= _LONGITUD_MINIMA_FLEXION
-        and termino[-1:].isalpha()
-        else ""
-    )
+    flexion = _SUFIJOS_FLEXION if permitir_flexion and admite_flexion(termino) else ""
     fin = r"(?![a-z0-9])" if termino[-1:].isalnum() else ""
     return re.compile(inicio + re.escape(termino) + flexion + fin)
 
