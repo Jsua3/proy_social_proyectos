@@ -7,11 +7,31 @@ from functools import lru_cache
 from boletin_empleos.config import PesosRelevancia, Vocabulario
 from boletin_empleos.modelos import Oferta
 
-# Los acrónimos no se flexionan; los sustantivos españoles sí. Se permite sufijo
-# de flexión solo a términos suficientemente largos que acaben en letra, para que
-# "desarrollador" cubra "desarrolladora" sin que "sre" cubra "sres.".
-_LONGITUD_MINIMA_FLEXION = 5
 _SUFIJOS_FLEXION = r"(?:as|es|os|a|s)?"
+_LONGITUD_MINIMA_FLEXION = 5
+
+# En español solo se flexionan los SUSTANTIVOS DE AGENTE, y tienen terminaciones
+# características. Esto no es una lista de excepciones que haya que auditar: es
+# morfología, y por eso se sostiene ante vocabulario nuevo.
+#
+# Deja fuera automáticamente `docker` (-er), `angular` (-ar), `android` (-id) y
+# `tester` (-er), que al flexionarse chocaban con *Dockers* (marca de ropa),
+# *angulares* (metalmecánica), *androides* y *testeros* (mueblería). Y deja fuera
+# las 32 tecnologías del vocabulario, que son nombres propios.
+#
+# Un criterio anterior por longitud no bastaba: `docker` tiene 6 caracteres y
+# `tester` 6, ambos muy por encima de cualquier umbral razonable.
+_TERMINACIONES_DE_AGENTE = ("dor", "or", "ero", "era", "ente", "ante", "ista", "logo", "grafo")
+
+
+def admite_flexion(termino: str) -> bool:
+    """¿Es `termino` un sustantivo de agente español, que se flexiona?
+
+    Se mira la última palabra: "ingeniero de datos" no se flexiona al final, pero
+    "desarrollador" sí. La longitud mínima protege de terminaciones accidentales.
+    """
+    ultima = termino.split()[-1] if termino.split() else termino
+    return len(ultima) >= _LONGITUD_MINIMA_FLEXION and ultima.endswith(_TERMINACIONES_DE_AGENTE)
 
 
 def normalizar_texto(texto: str) -> str:
@@ -39,17 +59,14 @@ def patron_de(termino: str, permitir_flexion: bool = True) -> re.Pattern[str]:
     y el filtro descartaría sistemáticamente esas vacantes. Los acrónimos cortos
     quedan fuera de esa concesión para que `sre` no case dentro de *Sres.*
 
-    La longitud no basta: `docker` y `angular` superan el umbral pero al flexionarse
-    chocan con *Dockers* (marca de ropa) y *angulares* (metalmecánica). Por eso el
-    llamador puede negar la flexión término por término con `permitir_flexion`,
-    alimentado desde la lista `sin_flexion` de `config.toml`.
+    Quién se flexiona lo decide `admite_flexion`, por morfología: solo los
+    sustantivos de agente. El parámetro `permitir_flexion` es la escotilla de
+    escape para los pocos casos en que la morfología acierta pero el resultado
+    colisiona igual — `conductor` es sustantivo de agente, pero "conductores"
+    también son cables. Se alimenta de la lista `sin_flexion` de `config.toml`.
     """
     inicio = r"(?<![a-z0-9])" if termino[:1].isalnum() else ""
-    flexion = (
-        _SUFIJOS_FLEXION
-        if permitir_flexion and len(termino) >= _LONGITUD_MINIMA_FLEXION and termino[-1:].isalpha()
-        else ""
-    )
+    flexion = _SUFIJOS_FLEXION if permitir_flexion and admite_flexion(termino) else ""
     fin = r"(?![a-z0-9])" if termino[-1:].isalnum() else ""
     return re.compile(inicio + re.escape(termino) + flexion + fin)
 

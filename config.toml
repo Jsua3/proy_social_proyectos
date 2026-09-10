@@ -48,18 +48,19 @@ excluidos = [
   "auxiliar de bodega", "mesero", "vigilante", "conductor",
 ]
 
-# Términos que NO admiten sufijo de flexión española.
+# Términos que NO admiten sufijo de flexión española, PESE a ser sustantivos de agente.
 #
-# El emparejamiento permite flexión (femenino y plural) para que "desarrollador"
-# cubra "Desarrolladora Backend". Eso funciona con sustantivos españoles de oficio,
-# pero hace daño con nombres propios de tecnología, que no se flexionan y que al
-# recibir el sufijo chocan con palabras españolas reales. Auditado término por
-# término sobre este vocabulario; cada entrada lleva su motivo:
+# El emparejamiento flexiona (femenino y plural) para que "desarrollador" cubra
+# "Desarrolladora Backend", y decide quién se flexiona por MORFOLOGÍA: solo los
+# sustantivos de agente (-dor, -or, -ero, -ente, -ista...). Esa regla ya deja fuera
+# sola a las tecnologías —"docker", "angular", "android", "tester"— sin necesidad
+# de enumerarlas.
+#
+# Esta lista es solo para los casos en que la morfología acierta pero el resultado
+# colisiona igual. Hoy hay uno:
 sin_flexion = [
-  "docker",     # "Dockers" es una marca de ropa con tiendas en Colombia
-  "angular",    # "angulares" es vocabulario de metalmecánica y construcción
-  "android",    # "androides" es un sustantivo español real
-  "conductor",  # "conductores" eléctricos: excluiría ofertas de hardware o embebidos
+  "conductor",  # es sustantivo de agente, pero "conductores" también son cables:
+                # excluiría ofertas legítimas de hardware o sistemas embebidos
 ]
 
 [experiencia]

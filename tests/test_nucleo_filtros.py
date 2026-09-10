@@ -5,7 +5,12 @@ import pytest
 from boletin_empleos.config import ConfigExperiencia, Vocabulario
 from boletin_empleos.modelos import Modalidad, Oferta
 from boletin_empleos.nucleo.experiencia import experiencia_apropiada
-from boletin_empleos.nucleo.relevancia import contiene, normalizar_texto, puntuar_relevancia
+from boletin_empleos.nucleo.relevancia import (
+    admite_flexion,
+    contiene,
+    normalizar_texto,
+    puntuar_relevancia,
+)
 from boletin_empleos.nucleo.vigencia import esta_vigente
 
 VOCAB = Vocabulario(
@@ -98,36 +103,92 @@ def test_contiene_respeta_las_fronteras_de_palabra(termino, titulo, debe_casar):
 
 
 @pytest.mark.parametrize(
+    ("termino", "esperado"),
+    [
+        # Sustantivos de agente: SÍ se flexionan.
+        ("desarrollador", True),
+        ("programador", True),
+        ("vendedor", True),
+        ("director", True),
+        ("gerente", True),
+        ("analista", True),
+        ("mesero", True),
+        ("vigilante", True),
+        # Nombres propios de tecnología: NO. Cada uno colisionaba de verdad.
+        ("docker", False),  # "Dockers", marca de ropa
+        ("angular", False),  # "angulares", metalmecánica
+        ("android", False),  # "androides"
+        ("tester", False),  # "testeros", mueblería y colchonería
+        ("python", False),
+        ("kubernetes", False),
+        # Acrónimos cortos: tampoco.
+        ("ios", False),
+        ("qa", False),
+        ("sre", False),
+        # Compuestos: la flexión iría al final de la frase y no serviría.
+        ("ingeniero de sistemas", False),
+    ],
+)
+def test_solo_se_flexionan_los_sustantivos_de_agente(termino, esperado):
+    """La regla es morfológica, no una lista de excepciones que haya que auditar.
+
+    Un criterio por longitud no bastaba: `docker` y `tester` tienen 6 caracteres.
+    """
+    assert admite_flexion(termino) is esperado
+
+
+@pytest.mark.parametrize(
     "titulo",
     [
         "Asesor de Ventas - Tienda Dockers",
         "Técnico en corte de piezas angulares",
         "Operario de estructuras angulares en vidrio",
+        "Ensamblador de Testeros para Fábrica de Colchones",
+        "Operario de Producción - Testeros en madera",
     ],
 )
 def test_relevancia_no_flexiona_nombres_propios_de_tecnologia(titulo):
-    """`docker` no debe casar en *Dockers* (marca de ropa) ni `angular` en *angulares*.
+    """`docker` no casa en *Dockers*, ni `angular` en *angulares*, ni `tester` en *testeros*.
 
-    La flexión española arregla "Desarrolladora" pero abre estos choques: la longitud
-    del término no basta como criterio, hace falta la lista `sin_flexion`.
+    Los tres son palabras españolas reales de mueblería, metalmecánica y comercio.
+    Ninguno está en `sin_flexion`: los excluye la morfología, no una lista.
     """
     vocabulario = Vocabulario(
-        cargos=["desarrollador"],
+        cargos=["desarrollador", "tester"],
         tecnologias=["docker", "angular"],
-        sin_flexion=["docker", "angular"],
     )
     assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
 
 
 def test_la_flexion_sigue_activa_para_los_cargos_en_femenino():
     """Negar la flexión a las tecnologías no debe romper los cargos."""
-    vocabulario = Vocabulario(
-        cargos=["desarrollador", "programador"],
-        tecnologias=["docker"],
-        sin_flexion=["docker"],
-    )
+    vocabulario = Vocabulario(cargos=["desarrollador", "programador"], tecnologias=["docker"])
     assert puntuar_relevancia(_oferta("Desarrolladora Backend"), vocabulario) > 0.35
     assert puntuar_relevancia(_oferta("Programadoras Python"), vocabulario) > 0.35
+
+
+def test_negar_la_flexion_no_es_negar_el_termino():
+    """`docker` y `tester` deben seguir casando en su forma exacta."""
+    vocabulario = Vocabulario(cargos=["desarrollador", "tester"], tecnologias=["docker", "angular"])
+    assert puntuar_relevancia(_oferta("Desarrollador Docker y Kubernetes"), vocabulario) > 0.35
+    assert puntuar_relevancia(_oferta("Tester de Software"), vocabulario) > 0.35
+    assert puntuar_relevancia(_oferta("Ingeniero Angular"), vocabulario) > 0.35
+
+
+def test_sin_flexion_cubre_el_agente_que_colisiona_igual():
+    """`conductor` es sustantivo de agente, pero "conductores" también son cables."""
+    vocabulario = Vocabulario(
+        cargos=["desarrollador"],
+        tecnologias=["python"],
+        excluidos=["conductor"],
+        sin_flexion=["conductor"],
+    )
+    # Una oferta de embebidos que mencione conductores eléctricos NO debe anularse.
+    puntaje = puntuar_relevancia(
+        _oferta("Desarrollador de firmware", "Diseño de conductores eléctricos en Python."),
+        vocabulario,
+    )
+    assert puntaje > 0.35
 
 
 def test_termino_excluido_anula_la_relevancia():
