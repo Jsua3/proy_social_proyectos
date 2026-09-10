@@ -1675,6 +1675,7 @@ tecnologias = [
 excluidos = [
   "vendedor", "asesor comercial", "call center", "domiciliario",
   "auxiliar de bodega", "mesero", "vigilante", "conductor",
+  "operario",
 ]
 
 # Términos que NO admiten sufijo de flexión española, PESE a ser sustantivos de agente.
@@ -1705,6 +1706,9 @@ terminos_excluidos = [
   "jefe de", "gerente", "director", "head of", "staff engineer",
   "principal engineer", "principal software", "principal developer",
   "coordinador de desarrollo",
+  # Plurales ingleses: la regla morfológica es española y no flexiona `-er`,
+  # porque ahí viven `docker`, `tester` y `flutter`. Se cubren como dato.
+  "staff engineers", "principal engineers", "principal developers",
 ]
 
 [legitimidad]
@@ -2134,7 +2138,9 @@ _LONGITUD_MINIMA_FLEXION = 5
 #
 # Un criterio anterior por longitud no bastaba: `docker` tiene 6 caracteres y
 # `tester` 6, ambos muy por encima de cualquier umbral razonable.
-_TERMINACIONES_DE_AGENTE = ("dor", "or", "ero", "era", "ente", "ante", "ista", "logo", "grafo")
+_TERMINACIONES_DE_AGENTE = (
+    "dor", "or", "ero", "era", "ario", "ente", "ante", "ista", "logo", "grafo",
+)
 
 
 def admite_flexion(termino: str) -> bool:
