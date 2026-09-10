@@ -22,7 +22,7 @@ información"*). Hoy la búsqueda y curaduría de vacantes, si ocurre, es manual
 
 ### Dentro
 - Recolección desde cuatro fuentes con permiso declarado.
-- Filtrado por relevancia, seniority, vigencia y legitimidad.
+- Filtrado por relevancia, nivel de experiencia, vigencia y legitimidad.
 - Deduplicación entre fuentes y contra ediciones anteriores.
 - Render de un boletín HTML apto para clientes de correo.
 - Envío por SMTP a **un** destinatario: la directora/coordinadora.
@@ -198,7 +198,7 @@ RemoteOK `0.70`.
 
   **Es más rico de lo previsto y simplifica dos filtros del núcleo:**
   - `FECHA_VENCIMIENTO` da la caducidad declarada por el empleador — no hay que estimarla.
-  - `MESES_EXPERIENCIA_CARGO` vuelve el filtro de seniority numérico en vez de heurístico.
+  - `MESES_EXPERIENCIA_CARGO` vuelve el filtro de nivel de experiencia numérico en vez de heurístico.
   - `PLAZA_PRACTICA` separa prácticas de empleo real (nuestra audiencia son egresados: se excluyen).
   - `TELETRABAJO` da la modalidad sin inferirla del texto.
 
@@ -238,7 +238,7 @@ Vocabulario configurable en `config.toml`. Semilla:
 Puntaje ponderado entre coincidencias en título (peso alto) y descripción (peso bajo). Umbral configurable.
 Se usa puntaje porque en Colombia abundan títulos opacos ("Analista de Desarrollo III", "Profesional TI").
 
-### 8.2 Seniority
+### 8.2 Nivel de experiencia
 Objetivo: junior a semi-senior. Descarte por: *senior, lead, líder técnico, arquitecto, jefe, gerente,
 head of, principal, staff*, y exigencias de 5+ años de experiencia detectadas por expresión regular.
 
@@ -281,7 +281,7 @@ filas de vacantes de contabilidad y logística, y el apéndice se volvería ileg
 | Motivo del descarte | ¿Va al apéndice? |
 |---|---|
 | Legitimidad (sospecha de estafa) | **Sí**, con la señal que lo activó |
-| Seniority (senior, lead, 5+ años) | **Sí**, en conteo agregado |
+| Nivel de experiencia (senior, lead, 5+ años) | **Sí**, en conteo agregado |
 | Vigencia o enlace muerto | **Sí**, en conteo agregado |
 | Relevancia (no es de software) | No — solo el conteo total |
 | Deduplicación | No es un descarte: la oferta sí entra, una sola vez |
@@ -366,7 +366,7 @@ vez de bloquear sin más.
 | **El SPE cambia su API sin aviso** (no es pública ni versionada contractualmente) | Medio | `GET /version` en cada corrida; si `backVersion` cambia, alertar. Tests de contrato sobre fixtures |
 | **TI no entrega credenciales SMTP** | Alto — no hay entrega | Plan B: cuenta de aplicación con contraseña de aplicación; o Brevo con verificación de dominio (también requiere TI) |
 | **Magneto cambia su HTML** | Medio | Tests de contrato; `selectolax` con selectores tolerantes; considerar Scrapling (parsing adaptativo) si se vuelve inestable |
-| **Volumen bajo de vacantes junior en Colombia** | Medio — boletines flacos | Medir en la primera ejecución real; ampliar el radio geográfico o relajar el filtro de seniority |
+| **Volumen bajo de vacantes junior en Colombia** | Medio — boletines flacos | Medir en la primera ejecución real; ampliar el radio geográfico o relajar el filtro de nivel de experiencia |
 | **Remotive o RemoteOK cambian términos** | Bajo | La atribución generada ya cumple sus condiciones actuales; revisar en cada fallo 4xx |
 
 ## 14. Estructura de archivos propuesta
@@ -380,7 +380,7 @@ boletin_empleos/
 │   ├── cli.py                       # --dry-run, --desde, --solo-fuente
 │   ├── modelos.py
 │   ├── nucleo/                      # sin E/S
-│   │   ├── relevancia.py · seniority.py · vigencia.py
+│   │   ├── relevancia.py · experiencia.py · vigencia.py
 │   │   ├── legitimidad.py · deduplicacion.py · pipeline.py
 │   ├── fuentes/
 │   │   ├── base.py · spe.py · magneto.py · remotive.py · remoteok.py
