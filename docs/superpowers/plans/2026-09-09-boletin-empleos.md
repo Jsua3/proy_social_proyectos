@@ -1583,7 +1583,7 @@ git commit -m "feat: adaptador Magneto365 sobre rutas canónicas"
 
 **Interfaces:**
 - Consumes: nada del proyecto
-- Produces: `Config`, `Vocabulario`, `UmbralesLegitimidad`, `cargar_config(ruta) -> Config`
+- Produces: `Config`, `Vocabulario`, `PesosRelevancia`, `ConfigExperiencia`, `UmbralesLegitimidad`, `cargar_config(ruta) -> Config`
 
 `config.toml` existe para que el vocabulario, los umbrales y las heurísticas antiestafa se ajusten sin
 tocar Python (spec §14).
@@ -1639,10 +1639,23 @@ dias_max_antiguedad = 30
 max_meses_experiencia = 60      # 5 años: por encima se considera senior
 excluir_practicas = true        # la audiencia son egresados, no practicantes
 
+[relevancia]
+# Cómo se pondera una coincidencia. Estos números deciden si una oferta supera
+# `umbral_relevancia`, así que viven aquí y no incrustados en Python: afinar el
+# filtro no debe exigir saber programar.
+peso_titulo = 0.7           # una coincidencia en el título vale mucho más
+peso_descripcion = 0.3      # que una en la descripción
+saturacion_base = 0.6       # lo que aporta la PRIMERA coincidencia
+saturacion_incremento = 0.2 # lo que aporta cada coincidencia adicional
+
 [vocabulario]
 cargos = [
   "desarrollador", "developer", "programador", "ingeniero de software",
   "ingeniero de sistemas", "analista de sistemas", "analista de desarrollo",
+  # Formas femeninas de los cargos compuestos: la flexión automática solo alcanza
+  # al final del término, así que "ingeniero de sistemas" no cubre "ingeniera de
+  # sistemas". Las simples ("desarrollador" -> "desarrolladora") sí se cubren solas.
+  "ingeniera de software", "ingeniera de sistemas", "analista de tecnologia",
   "backend", "back end", "frontend", "front end", "full stack", "fullstack",
   "qa", "tester", "automatizacion de pruebas", "devops", "sre",
   "ingeniero de datos", "data engineer", "desarrollador movil", "android", "ios",
@@ -1653,6 +1666,10 @@ tecnologias = [
   "node", ".net", "c#", "php", "spring", "django", "laravel", "flutter",
   "sql", "postgresql", "mysql", "mongodb", "docker", "kubernetes",
   "aws", "azure", "git", "api rest", "microservicios",
+  # Variantes pegadas: el emparejamiento exige frontera de palabra, así que
+  # "react" NO casa dentro de "reactjs". Se listan como dato, que es la vía
+  # de ajuste prevista por el diseño.
+  "reactjs", "nodejs", "vuejs", "angularjs", "nestjs", "nextjs",
 ]
 # Términos que descalifican aunque haya coincidencias tecnológicas.
 excluidos = [
@@ -1713,6 +1730,19 @@ class Vocabulario(BaseModel):
     excluidos: list[str] = Field(default_factory=list)
 
 
+class PesosRelevancia(BaseModel):
+    """Cómo se pondera una coincidencia al puntuar relevancia.
+
+    Vive en config.toml, no incrustado en Python: estos números deciden si una
+    oferta supera el umbral, y afinar el filtro no debe exigir saber programar.
+    """
+
+    peso_titulo: float = Field(default=0.7, ge=0.0, le=1.0)
+    peso_descripcion: float = Field(default=0.3, ge=0.0, le=1.0)
+    saturacion_base: float = Field(default=0.6, gt=0.0, le=1.0)
+    saturacion_incremento: float = Field(default=0.2, ge=0.0, le=1.0)
+
+
 class ConfigExperiencia(BaseModel):
     terminos_excluidos: list[str] = Field(default_factory=list)
 
@@ -1734,6 +1764,7 @@ class Config(BaseModel):
     dias_max_antiguedad: int = Field(gt=0)
     max_meses_experiencia: int = 60
     excluir_practicas: bool = True
+    relevancia: PesosRelevancia = Field(default_factory=PesosRelevancia)
     vocabulario: Vocabulario = Field(default_factory=Vocabulario)
     experiencia: ConfigExperiencia = Field(default_factory=ConfigExperiencia)
     legitimidad: UmbralesLegitimidad = Field(default_factory=UmbralesLegitimidad)
@@ -1862,6 +1893,16 @@ def test_relevancia_no_casa_terminos_dentro_de_otras_palabras(titulo):
         ("sql", "Consultor NoSQL", False),
         ("git", "Manejo de Git", True),
         ("git", "Digitador", False),
+        # Flexión española: las ofertas colombianas se escriben en femenino y plural.
+        ("desarrollador", "Desarrolladora Backend", True),
+        ("programador", "Programadora Python", True),
+        ("desarrollador", "Desarrolladores Senior", True),
+        # ...sin que la concesión abra colisiones nuevas:
+        ("director", "Analista de Directorio Activo", False),
+        ("analista", "Analistica de Datos", False),
+        # Los acrónimos cortos NO se flexionan, para que 'sre' no case en 'Sres.':
+        ("sre", "Gerente de Sres. Clientes", False),
+        ("sre", "Ingeniero SRE", True),
     ],
 )
 def test_contiene_respeta_las_fronteras_de_palabra(termino, titulo, debe_casar):
@@ -1897,12 +1938,23 @@ def test_experiencia_rechaza_por_exceso():
     assert "84" in motivo
 
 
-def test_experiencia_no_descarta_por_fragmentos_de_palabra():
-    """`lead` no debe casar dentro de *liderar*, ni `sr.` dentro de otras siglas."""
-    cfg = ConfigExperiencia(terminos_excluidos=["lead", "senior", "sr."])
-    for titulo in ["Desarrollador para liderar el frente web", "Analista de Recursos"]:
-        ok, _ = experiencia_apropiada(_oferta(titulo), cfg, 60)
-        assert ok is True, titulo
+@pytest.mark.parametrize(
+    ("titulo", "debe_pasar"),
+    [
+        # Colisiones REALES de subcadena que la frontera debe evitar:
+        ("Analista de Directorio Activo", True),  # 'directorio' contiene 'director'
+        ("Regente de Farmacia", True),  # 'regente' contiene 'gerente'
+        ("Analistica de Datos", True),  # 'analistica' contiene 'analista'
+        # Flexión española: SÍ deben descartarse, aunque no coincidan literalmente:
+        ("Directora de Tecnología", False),
+        ("Gerentes de Proyecto", False),
+    ],
+)
+def test_experiencia_distingue_flexion_de_colision(titulo, debe_pasar):
+    """La frontera debe evitar colisiones sin perder género ni plural del español."""
+    cfg = ConfigExperiencia(terminos_excluidos=["director", "gerente", "analista"])
+    ok, _ = experiencia_apropiada(_oferta(titulo), cfg, 60)
+    assert ok is debe_pasar, titulo
 
 
 def test_experiencia_acepta_junior():
@@ -1951,11 +2003,14 @@ import re
 import unicodedata
 from functools import lru_cache
 
-from boletin_empleos.config import Vocabulario
+from boletin_empleos.config import PesosRelevancia, Vocabulario
 from boletin_empleos.modelos import Oferta
 
-_PESO_TITULO = 0.7
-_PESO_DESCRIPCION = 0.3
+# Los acrónimos no se flexionan; los sustantivos españoles sí. Se permite sufijo
+# de flexión solo a términos suficientemente largos que acaben en letra, para que
+# "desarrollador" cubra "desarrolladora" sin que "sre" cubra "sres.".
+_LONGITUD_MINIMA_FLEXION = 5
+_SUFIJOS_FLEXION = r"(?:as|es|os|a|s)?"
 
 
 def normalizar_texto(texto: str) -> str:
@@ -1976,19 +2031,39 @@ def patron_de(termino: str) -> re.Pattern[str]:
 
     La frontera se exige **solo donde el borde del término es alfanumérico**, para
     que `.net` siga casando dentro de `asp.net` y `c#` siga funcionando.
+
+    A los términos largos que acaban en letra se les permite además un sufijo de
+    flexión española, porque las ofertas colombianas se escriben en femenino y en
+    plural: sin esto, `desarrollador` no casaría dentro de *Desarrolladora Backend*
+    y el filtro descartaría sistemáticamente esas vacantes. Los acrónimos cortos
+    quedan fuera de esa concesión para que `sre` no case dentro de *Sres.*
     """
     inicio = r"(?<![a-z0-9])" if termino[:1].isalnum() else ""
+    flexion = (
+        _SUFIJOS_FLEXION
+        if len(termino) >= _LONGITUD_MINIMA_FLEXION and termino[-1:].isalpha()
+        else ""
+    )
     fin = r"(?![a-z0-9])" if termino[-1:].isalnum() else ""
-    return re.compile(inicio + re.escape(termino) + fin)
+    return re.compile(inicio + re.escape(termino) + flexion + fin)
 
 
 def contiene(texto: str, termino: str) -> bool:
-    """¿Aparece `termino` en `texto` como palabra, no como fragmento?"""
+    """¿Aparece `termino` en `texto` como palabra, no como fragmento?
+
+    **`texto` debe venir ya normalizado** con `normalizar_texto`; el término se
+    normaliza aquí. La asimetría es deliberada: `texto` suele ser una descripción
+    larga que se compara contra decenas de términos, y normalizarla en cada
+    comparación sería desperdicio. Pasar texto crudo devuelve `False` en silencio.
+    """
     return patron_de(normalizar_texto(termino)).search(texto) is not None
 
 
-def puntuar_relevancia(oferta: Oferta, vocabulario: Vocabulario) -> float:
+def puntuar_relevancia(
+    oferta: Oferta, vocabulario: Vocabulario, pesos: PesosRelevancia | None = None
+) -> float:
     """Devuelve 0.0–1.0. Un término excluido anula la oferta por completo."""
+    pesos = pesos or PesosRelevancia()
     titulo = normalizar_texto(oferta.titulo)
     descripcion = normalizar_texto(oferta.descripcion)
     completo = f"{titulo} {descripcion}"
@@ -2003,15 +2078,17 @@ def puntuar_relevancia(oferta: Oferta, vocabulario: Vocabulario) -> float:
     en_titulo = sum(1 for t in terminos if contiene(titulo, t))
     en_descripcion = sum(1 for t in terminos if contiene(descripcion, t))
 
-    puntaje = _PESO_TITULO * _saturar(en_titulo) + _PESO_DESCRIPCION * _saturar(en_descripcion)
+    puntaje = pesos.peso_titulo * _saturar(en_titulo, pesos) + pesos.peso_descripcion * _saturar(
+        en_descripcion, pesos
+    )
     return round(min(puntaje, 1.0), 4)
 
 
-def _saturar(coincidencias: int) -> float:
+def _saturar(coincidencias: int, pesos: PesosRelevancia) -> float:
     """1 coincidencia ya vale mucho; más coincidencias suman con rendimiento decreciente."""
     if coincidencias <= 0:
         return 0.0
-    return min(1.0, 0.6 + 0.2 * (coincidencias - 1))
+    return min(1.0, pesos.saturacion_base + pesos.saturacion_incremento * (coincidencias - 1))
 ```
 
 - [ ] **Step 4: Implementar experiencia y vigencia**
@@ -2580,7 +2657,7 @@ def evaluar(
     descartadas: list[Evaluacion] = []
 
     for oferta in unicas:
-        relevancia = puntuar_relevancia(oferta, cfg.vocabulario)
+        relevancia = puntuar_relevancia(oferta, cfg.vocabulario, cfg.relevancia)
         confianza = confianza_por_fuente.get(oferta.fuente, 0.5)
         legitimidad, notas_legitimidad = puntuar_legitimidad(oferta, confianza, cfg.legitimidad)
 
