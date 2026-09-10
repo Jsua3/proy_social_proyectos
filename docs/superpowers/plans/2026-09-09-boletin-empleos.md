@@ -3179,7 +3179,7 @@ from pathlib import Path
 from jinja2_mjml import Environment
 from pydantic import BaseModel, Field
 
-from boletin_empleos.modelos import Evaluacion, Modalidad, MotivoDescarte
+from boletin_empleos.modelos import Evaluacion, Modalidad, MotivoDescarte, Oferta
 
 _PLANTILLAS = Path(__file__).parent / "plantillas"
 
@@ -3234,7 +3234,13 @@ def _cargador():
 
 
 class _Adornada(BaseModel):
-    oferta: object
+    """Una evaluación con los campos ya calculados que la plantilla necesita.
+
+    `oferta` va tipada como `Oferta` y no como `object`: así pydantic valida de
+    verdad y el editor autocompleta los campos dentro de la plantilla.
+    """
+
+    oferta: Oferta
     resumen: str | None
     salario: str | None
     motivo: str | None
