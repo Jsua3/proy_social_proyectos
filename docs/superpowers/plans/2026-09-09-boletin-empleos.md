@@ -278,6 +278,7 @@ git commit -m "feat: esqueleto del proyecto y modelos de dominio"
 **Files:**
 - Create: `src/boletin_empleos/fuentes/__init__.py`
 - Create: `src/boletin_empleos/fuentes/base.py`
+- Create: `src/boletin_empleos/fuentes/comun.py`
 - Create: `src/boletin_empleos/fuentes/remotive.py`
 - Create: `src/boletin_empleos/http.py`
 - Create: `tests/fixtures/remotive.json`
@@ -285,7 +286,8 @@ git commit -m "feat: esqueleto del proyecto y modelos de dominio"
 
 **Interfaces:**
 - Consumes: `Oferta`, `Modalidad` (Task 1)
-- Produces: `FuenteEmpleo` (Protocol), `USER_AGENT`, `crear_cliente()`, `FuenteRemotive`
+- Produces: `FuenteEmpleo` (Protocol), `USER_AGENT`, `crear_cliente()`, `json_de()`,
+  `reintentar()`, `fecha_iso()` (en `fuentes/comun.py`), `FuenteRemotive`
 
 - [ ] **Step 1: Descargar la fixture real**
 
@@ -341,9 +343,20 @@ def test_remotive_declara_su_permiso_y_atribucion():
 
 
 @respx.mock
-def test_remotive_devuelve_vacio_si_la_api_falla():
+def test_remotive_devuelve_vacio_si_la_api_falla(monkeypatch):
+    # Sin esto, los 3 reintentos duermen 1 s + 2 s reales y la suite se arrastra.
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
     respx.get(url__startswith="https://remotive.com/api/remote-jobs").mock(
         return_value=httpx.Response(503)
+    )
+    assert FuenteRemotive().obtener() == []
+
+
+@respx.mock
+def test_remotive_devuelve_vacio_si_el_cuerpo_no_es_json():
+    """Un 200 con HTML — mantenimiento, interstitial de WAF — no debe lanzar excepción."""
+    respx.get(url__startswith="https://remotive.com/api/remote-jobs").mock(
+        return_value=httpx.Response(200, text="<html>Mantenimiento</html>")
     )
     assert FuenteRemotive().obtener() == []
 ```
@@ -359,9 +372,11 @@ Expected: FAIL con `ModuleNotFoundError: No module named 'boletin_empleos.fuente
 # src/boletin_empleos/http.py
 """Cliente HTTP compartido. Identifica al agente y reintenta con retroceso."""
 
+import json
 import logging
 import time
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 
@@ -373,14 +388,35 @@ USER_AGENT = (
 _log = logging.getLogger(__name__)
 
 
-def crear_cliente(timeout: float = 30.0, acepta: str = "application/json") -> httpx.Client:
+def crear_cliente(
+    tiempo_limite: float = 30.0, acepta: str = "application/json"
+) -> httpx.Client:
     """`acepta` se parametriza porque no todas las fuentes sirven JSON: Magneto sirve HTML
     y un servidor estricto respondería 406 ante un Accept que no puede satisfacer."""
     return httpx.Client(
         headers={"User-Agent": USER_AGENT, "Accept": acepta},
-        timeout=timeout,
+        timeout=tiempo_limite,
         follow_redirects=True,
     )
+
+
+def json_de(respuesta: httpx.Response) -> Any | None:
+    """Interpreta el cuerpo como JSON. Devuelve None si no lo es.
+
+    Un HTTP 200 no garantiza JSON: una página de mantenimiento, un interstitial de
+    WAF o una respuesta truncada devuelven 200 con HTML. `respuesta.json()` lanzaría
+    `JSONDecodeError` fuera del alcance de `reintentar` (que solo atrapa errores de
+    transporte) y rompería el contrato de que un adaptador nunca lanza excepción.
+    """
+    try:
+        return respuesta.json()
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        _log.error(
+            "respuesta de %s no es JSON válido (%s); se descarta la fuente en esta edición",
+            respuesta.request.url if respuesta.request else "?",
+            e,
+        )
+        return None
 
 
 def reintentar[T](
@@ -437,6 +473,28 @@ from boletin_empleos.fuentes.base import FuenteEmpleo
 __all__ = ["FuenteEmpleo"]
 ```
 
+```python
+# src/boletin_empleos/fuentes/comun.py
+"""Utilidades compartidas por los adaptadores de fuente.
+
+Existe para que la misma lógica no viva copiada en cada adaptador: las cuatro
+fuentes entregan fechas en variantes de ISO 8601 y todas necesitan interpretarlas
+igual.
+"""
+
+from datetime import date, datetime
+
+
+def fecha_iso(valor: str | None) -> date | None:
+    """Interpreta una fecha ISO 8601, con o sin sufijo `Z`. None si no se puede."""
+    if not valor:
+        return None
+    try:
+        return datetime.fromisoformat(str(valor).replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+```
+
 - [ ] **Step 6: Implementar el adaptador Remotive**
 
 ```python
@@ -451,7 +509,8 @@ terminate your API access." Las ofertas vienen con 24 h de retraso por diseño s
 import logging
 from datetime import UTC, datetime
 
-from boletin_empleos.http import crear_cliente, reintentar
+from boletin_empleos.fuentes.comun import fecha_iso
+from boletin_empleos.http import crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
 _log = logging.getLogger(__name__)
@@ -480,9 +539,14 @@ class FuenteRemotive:
             _log.error("remotive: no se pudo obtener la lista de ofertas")
             return []
 
+        datos = json_de(respuesta)
+        if not isinstance(datos, dict):
+            _log.error("remotive: la respuesta no tiene la forma esperada")
+            return []
+
         ahora = datetime.now(UTC)
         ofertas: list[Oferta] = []
-        for bruto in respuesta.json().get("jobs", []):
+        for bruto in datos.get("jobs", []):
             oferta = self._normalizar(bruto, ahora)
             if oferta is not None:
                 ofertas.append(oferta)
@@ -501,26 +565,17 @@ class FuenteRemotive:
                 url=bruto["url"],
                 descripcion=bruto.get("description", ""),
                 recogida_en=ahora,
-                fecha_publicacion=_fecha(bruto.get("publication_date")),
+                fecha_publicacion=fecha_iso(bruto.get("publication_date")),
             )
         except (KeyError, ValueError) as e:
             _log.warning("remotive: oferta descartada por dato inválido: %s", e)
             return None
-
-
-def _fecha(valor: str | None):
-    if not valor:
-        return None
-    try:
-        return datetime.fromisoformat(valor.replace("Z", "+00:00")).date()
-    except ValueError:
-        return None
 ```
 
 - [ ] **Step 7: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_remotive.py -v`
-Expected: PASS — 3 tests
+Expected: PASS — 4 tests
 
 - [ ] **Step 8: Formatear y commitear**
 
@@ -540,7 +595,7 @@ git commit -m "feat: puerto de fuentes y adaptador Remotive"
 - Create: `tests/test_fuente_remoteok.py`
 
 **Interfaces:**
-- Consumes: `Oferta`, `Modalidad`, `crear_cliente`, `reintentar`
+- Consumes: `Oferta`, `Modalidad`, `crear_cliente`, `json_de`, `reintentar`, `fecha_iso`
 - Produces: `FuenteRemoteOK`
 
 **Particularidad verificada:** el primer elemento del arreglo que devuelve RemoteOK **no es una oferta**, es su aviso legal (`{"legal": "..."}`). Hay que descartarlo.
@@ -602,8 +657,19 @@ def test_remoteok_declara_su_permiso_y_atribucion():
 
 
 @respx.mock
-def test_remoteok_devuelve_vacio_si_la_api_falla():
+def test_remoteok_devuelve_vacio_si_la_api_falla(monkeypatch):
+    # Sin esto, los 3 reintentos duermen 1 s + 2 s reales y la suite se arrastra.
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
     respx.get("https://remoteok.com/api").mock(return_value=httpx.Response(500))
+    assert FuenteRemoteOK().obtener() == []
+
+
+@respx.mock
+def test_remoteok_devuelve_vacio_si_el_cuerpo_no_es_json():
+    """Un 200 con HTML — mantenimiento, interstitial de WAF — no debe lanzar excepción."""
+    respx.get("https://remoteok.com/api").mock(
+        return_value=httpx.Response(200, text="<html>Mantenimiento</html>")
+    )
     assert FuenteRemoteOK().obtener() == []
 ```
 
@@ -628,7 +694,8 @@ El primer elemento del arreglo es el aviso legal, no una oferta.
 import logging
 from datetime import UTC, datetime
 
-from boletin_empleos.http import crear_cliente, reintentar
+from boletin_empleos.fuentes.comun import fecha_iso
+from boletin_empleos.http import crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
 _log = logging.getLogger(__name__)
@@ -649,7 +716,11 @@ class FuenteRemoteOK:
             _log.error("remoteok: no se pudo obtener la lista de ofertas")
             return []
 
-        datos = respuesta.json()
+        datos = json_de(respuesta)
+        if not isinstance(datos, list):
+            _log.error("remoteok: la respuesta no tiene la forma esperada")
+            return []
+
         ahora = datetime.now(UTC)
         ofertas: list[Oferta] = []
         for bruto in datos:
@@ -673,7 +744,7 @@ class FuenteRemoteOK:
                 url=bruto["url"],
                 descripcion=bruto.get("description", ""),
                 recogida_en=ahora,
-                fecha_publicacion=_fecha(bruto.get("date")),
+                fecha_publicacion=fecha_iso(bruto.get("date")),
                 salario_min=bruto.get("salary_min") or None,
                 salario_max=bruto.get("salary_max") or None,
                 moneda="USD" if bruto.get("salary_min") else None,
@@ -681,21 +752,12 @@ class FuenteRemoteOK:
         except (KeyError, ValueError) as e:
             _log.warning("remoteok: oferta descartada por dato inválido: %s", e)
             return None
-
-
-def _fecha(valor: str | None):
-    if not valor:
-        return None
-    try:
-        return datetime.fromisoformat(valor.replace("Z", "+00:00")).date()
-    except ValueError:
-        return None
 ```
 
 - [ ] **Step 5: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_remoteok.py -v`
-Expected: PASS — 3 tests
+Expected: PASS — 4 tests
 
 - [ ] **Step 6: Formatear y commitear**
 
@@ -715,7 +777,7 @@ git commit -m "feat: adaptador RemoteOK"
 - Create: `tests/test_fuente_spe.py`
 
 **Interfaces:**
-- Consumes: `Oferta`, `Modalidad`, `crear_cliente`, `reintentar`
+- Consumes: `Oferta`, `Modalidad`, `crear_cliente`, `json_de`, `reintentar`, `fecha_iso`
 - Produces: `FuenteSPE`
 
 **Contrato verificado el 9/09/2026** (spec §7): base `https://www.buscadordeempleo.gov.co/backbue/v1`,
@@ -841,9 +903,19 @@ def test_spe_declara_su_permiso_y_atribucion():
 
 
 @respx.mock
-def test_spe_devuelve_vacio_si_la_api_falla():
+def test_spe_devuelve_vacio_si_la_api_falla(monkeypatch):
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
     respx.get(url__startswith="https://www.buscadordeempleo.gov.co/backbue/v1").mock(
         return_value=httpx.Response(502)
+    )
+    assert FuenteSPE(consultas=[{"departamento": "Quindio"}]).obtener() == []
+
+
+@respx.mock
+def test_spe_devuelve_vacio_si_el_cuerpo_no_es_json():
+    """Un 200 con HTML — mantenimiento, interstitial de WAF — no debe lanzar excepción."""
+    respx.get(url__startswith="https://www.buscadordeempleo.gov.co/backbue/v1").mock(
+        return_value=httpx.Response(200, text="<html>Mantenimiento</html>")
     )
     assert FuenteSPE(consultas=[{"departamento": "Quindio"}]).obtener() == []
 ```
@@ -870,9 +942,10 @@ detectar cambios de contrato.
 import logging
 import re
 import time
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
-from boletin_empleos.http import crear_cliente, reintentar
+from boletin_empleos.fuentes.comun import fecha_iso
+from boletin_empleos.http import crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
 _log = logging.getLogger(__name__)
@@ -934,7 +1007,10 @@ class FuenteSPE:
         respuesta = reintentar(lambda: cliente.get(f"{_BASE}/version").raise_for_status())
         if respuesta is None:
             return
-        version = respuesta.json().get("backVersion")
+        datos = json_de(respuesta)
+        if not isinstance(datos, dict):
+            return
+        version = datos.get("backVersion")
         if version != _VERSION_ESPERADA:
             _log.warning(
                 "spe: la API cambió de versión (esperada %s, encontrada %s). "
@@ -958,7 +1034,10 @@ class FuenteSPE:
             if respuesta is None:
                 _log.error("spe: falló la consulta %s en la página %d", consulta, pagina)
                 return
-            datos = respuesta.json()
+            datos = json_de(respuesta)
+            if not isinstance(datos, dict):
+                _log.error("spe: respuesta sin la forma esperada en %s p%d", consulta, pagina)
+                return
             total_paginas = datos.get("totalPages", 1)
             yield from datos.get("resultados", [])
             pagina += 1
@@ -987,8 +1066,8 @@ class FuenteSPE:
                 url=url,
                 descripcion=bruto.get("DESCRIPCION_VACANTE", ""),
                 recogida_en=ahora,
-                fecha_publicacion=_fecha(bruto.get("FECHA_PUBLICACION")),
-                fecha_vencimiento=_fecha(bruto.get("FECHA_VENCIMIENTO")),
+                fecha_publicacion=fecha_iso(bruto.get("FECHA_PUBLICACION")),
+                fecha_vencimiento=fecha_iso(bruto.get("FECHA_VENCIMIENTO")),
                 meses_experiencia=_entero(bruto.get("MESES_EXPERIENCIA_CARGO")),
                 es_practica=_a_booleano(bruto.get("PLAZA_PRACTICA")),
                 salario_min=minimo,
@@ -1044,16 +1123,6 @@ def _entero(valor) -> int | None:
         return None
 
 
-def _fecha(valor) -> date | None:
-    if not valor:
-        return None
-    texto = str(valor).replace("Z", "+00:00")
-    try:
-        return datetime.fromisoformat(texto).date()
-    except ValueError:
-        return None
-
-
 _NUMERO = re.compile(r"\$?\s*([\d.]{4,})")
 
 
@@ -1072,7 +1141,7 @@ def _rango_salarial(texto: str | None) -> tuple[int | None, int | None]:
 - [ ] **Step 5: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_spe.py -v`
-Expected: PASS — 8 tests
+Expected: PASS — 9 tests
 
 - [ ] **Step 6: Formatear y commitear**
 
@@ -1093,7 +1162,7 @@ git commit -m "feat: adaptador del Servicio Público de Empleo"
 
 **Interfaces:**
 - Consumes: `Oferta`, `Modalidad`, `crear_cliente`, `reintentar`
-- Produces: `FuenteMagneto`
+- Produces: `FuenteMagneto` (Magneto sirve HTML, no usa `json_de`)
 
 **Base de permiso:** Magneto publica `llms.txt` dirigido explícitamente a asistentes de IA, con URLs
 canónicas y la instrucción *"Evitar URLs con parámetros"*. Su `robots.txt` confirma `Disallow: /*?`.
