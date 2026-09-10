@@ -736,6 +736,7 @@ print('campos:', list(d['resultados'][0]))
 ```python
 # tests/test_fuente_spe.py
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -760,7 +761,8 @@ def test_spe_pagina_y_normaliza():
     assert o.fuente == "spe"
     assert o.id.startswith("spe:")
     assert o.pais == "CO"
-    assert str(o.url).startswith("https://buscadordeempleo.gov.co")
+    assert str(o.url).startswith("http"), "la URL sale de DETALLES_PRESTADOR[0].URL_DETALLE_VACANTE"
+    assert o.empresa, "el nombre del prestador viene en DETALLES_PRESTADOR[0].NOMBRE_PRESTADOR"
 
 
 @respx.mock
@@ -780,6 +782,31 @@ def test_spe_recorre_todas_las_paginas():
     )
     FuenteSPE(consultas=[{"departamento": "Quindio"}], pausa=0.0).obtener()
     assert llamadas["n"] == 3
+
+
+def test_spe_extrae_url_y_prestador_de_la_lista():
+    """DETALLES_PRESTADOR es una LISTA de dicts, no una cadena.
+
+    Tratarla como cadena lanzaría AttributeError con cada registro del SPE.
+    """
+    from boletin_empleos.fuentes.spe import _prestador
+
+    fila = FIXTURE["resultados"][0]
+    nombre, url = _prestador(fila)
+    assert nombre and url and url.startswith("http")
+
+    assert _prestador({}) == (None, None)
+    assert _prestador({"DETALLES_PRESTADOR": []}) == (None, None)
+    assert _prestador({"DETALLES_PRESTADOR": "texto plano"}) == (None, None)
+
+
+def test_spe_omite_vacantes_sin_url_de_detalle():
+    from boletin_empleos.fuentes.spe import FuenteSPE
+
+    fuente = FuenteSPE()
+    sin_url = dict(FIXTURE["resultados"][0])
+    sin_url["DETALLES_PRESTADOR"] = [{"NOMBRE_PRESTADOR": "X", "URL_DETALLE_VACANTE": ""}]
+    assert fuente._normalizar(sin_url, datetime(2026, 9, 9, tzinfo=UTC)) is None
 
 
 def test_spe_traduce_teletrabajo_a_modalidad():
@@ -931,6 +958,11 @@ class FuenteSPE:
     def _normalizar(self, bruto: dict, ahora: datetime) -> Oferta | None:
         try:
             codigo = str(bruto["CODIGO_VACANTE"])
+            prestador, url = _prestador(bruto)
+            if not url:
+                _log.debug("spe: vacante %s sin URL de detalle; se omite", codigo)
+                return None
+
             minimo, maximo = _rango_salarial(bruto.get("RANGO_SALARIAL"))
             municipio = (bruto.get("MUNICIPIO") or "").strip()
             departamento = (bruto.get("DEPARTAMENTO") or "").strip()
@@ -938,11 +970,11 @@ class FuenteSPE:
                 id=f"spe:{codigo}",
                 fuente=self.nombre,
                 titulo=bruto["TITULO_VACANTE"],
-                empresa=(bruto.get("DETALLES_PRESTADOR") or "").strip() or None,
+                empresa=prestador,
                 ubicacion=", ".join(p for p in (municipio, departamento) if p) or None,
                 pais="CO",
                 modalidad=_a_modalidad(bruto.get("TELETRABAJO")),
-                url=f"https://buscadordeempleo.gov.co/vacante/{codigo}",
+                url=url,
                 descripcion=bruto.get("DESCRIPCION_VACANTE", ""),
                 recogida_en=ahora,
                 fecha_publicacion=_fecha(bruto.get("FECHA_PUBLICACION")),
@@ -953,9 +985,33 @@ class FuenteSPE:
                 salario_max=maximo,
                 moneda="COP" if minimo or maximo else None,
             )
-        except (KeyError, ValueError) as e:
+        except (KeyError, ValueError, TypeError, AttributeError, IndexError) as e:
             _log.warning("spe: oferta descartada por dato inválido: %s", e)
             return None
+
+
+def _prestador(bruto: dict) -> tuple[str | None, str | None]:
+    """Extrae (nombre de la bolsa, URL de la vacante) de `DETALLES_PRESTADOR`.
+
+    `DETALLES_PRESTADOR` es una LISTA de diccionarios, no una cadena. Verificado el
+    9/09/2026: las 50 filas de una página traen exactamente un prestador, y las 50
+    traen `URL_DETALLE_VACANTE`.
+
+    El SPE no expone el empleador real: `NOMBRE_PRESTADOR` es la bolsa de empleo
+    autorizada que publicó la vacante (Magneto, Comfenalco, Computrabajo…). Se usa
+    igualmente como `empresa` porque es una entidad real, registrada ante el
+    Ministerio, y porque dejarlo en None penalizaría sistemáticamente a la fuente
+    más confiable del sistema en el filtro de legitimidad.
+    """
+    detalles = bruto.get("DETALLES_PRESTADOR")
+    if not isinstance(detalles, list) or not detalles:
+        return (None, None)
+    primero = detalles[0]
+    if not isinstance(primero, dict):
+        return (None, None)
+    nombre = (primero.get("NOMBRE_PRESTADOR") or "").strip() or None
+    url = (primero.get("URL_DETALLE_VACANTE") or "").strip() or None
+    return (nombre, url)
 
 
 _VERDADEROS = {"1", "si", "sí", "true", "s", "y"}
@@ -1006,7 +1062,7 @@ def _rango_salarial(texto: str | None) -> tuple[int | None, int | None]:
 - [ ] **Step 5: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_spe.py -v`
-Expected: PASS — 6 tests
+Expected: PASS — 8 tests
 
 - [ ] **Step 6: Formatear y commitear**
 

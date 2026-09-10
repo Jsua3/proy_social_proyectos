@@ -20,7 +20,7 @@ class Decision(StrEnum):
 
 class MotivoDescarte(StrEnum):
     RELEVANCIA = "relevancia"
-    SENIORITY = "seniority"
+    EXPERIENCIA = "experiencia"
     VIGENCIA = "vigencia"
     ENLACE_MUERTO = "enlace_muerto"
     LEGITIMIDAD = "legitimidad"

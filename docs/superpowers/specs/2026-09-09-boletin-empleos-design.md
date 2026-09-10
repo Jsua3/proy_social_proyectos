@@ -178,6 +178,24 @@ RemoteOK `0.70`.
   `FECHA_VENCIMIENTO`, `SECTOR_ECONOMICO`, `TELETRABAJO`, `DISCAPACIDAD`, `MESES_EXPERIENCIA_CARGO`,
   `HIDROCARBUROS`, `PLAZA_PRACTICA`, `FECHA_PUBLICACION`, `BUSQUEDA`, `DETALLES_PRESTADOR`.
 
+  ⚠️ **`DETALLES_PRESTADOR` es una LISTA de diccionarios**, no una cadena, con las claves
+  `NOMBRE_PRESTADOR` y **`URL_DETALLE_VACANTE`**. Verificado sobre 50 registros: todos traen
+  exactamente un prestador y todos traen la URL.
+
+  **La URL de la vacante sale de ahí.** No existe una ruta pública tipo
+  `buscadordeempleo.gov.co/vacante/<codigo>`: el portal es una SPA sin ruta de detalle y esa URL
+  devuelve 404. `URL_DETALLE_VACANTE` apunta al sitio de la bolsa que publicó la vacante
+  (Magneto, Comfenalco, Computrabajo…).
+
+  Algunas de esas URLs apuntan a **Computrabajo**, que este sistema excluye como *fuente*. No hay
+  contradicción: enlazar no es extraer. Publicamos un enlace que el portal oficial del Estado nos
+  entrega; nunca automatizamos peticiones contra Computrabajo.
+
+  `NOMBRE_PRESTADOR` es **la bolsa de empleo, no el empleador**: el SPE no expone el empleador real.
+  Se usa igualmente como `empresa` porque es una entidad registrada ante el Ministerio, y porque
+  dejarla vacía penalizaría sistemáticamente a la fuente más confiable del sistema en el filtro de
+  legitimidad (§8.4).
+
   **Es más rico de lo previsto y simplifica dos filtros del núcleo:**
   - `FECHA_VENCIMIENTO` da la caducidad declarada por el empleador — no hay que estimarla.
   - `MESES_EXPERIENCIA_CARGO` vuelve el filtro de seniority numérico en vez de heurístico.

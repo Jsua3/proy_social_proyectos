@@ -10,14 +10,17 @@ dependencies = [
     "jinja2-mjml>=0.1",
 ]
 
+# jinja2-mjml solo existe en 0.1.0 en PyPI y fija mjml-python<0.2.0, que no
+# publica wheels para cp313. mjml-python 1.2.4+ sí los trae (cp313/abi3) y la
+# API que usamos es compatible. Verificado el 9/09/2026.
+[tool.uv]
+override-dependencies = ["mjml-python>=1.2.4"]
+
 [project.scripts]
 boletin = "boletin_empleos.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.3", "ruff>=0.7", "respx>=0.21"]
-
-[tool.uv]
-override-dependencies = ["mjml-python>=1.2.4"]
 
 [build-system]
 requires = ["hatchling"]
