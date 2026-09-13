@@ -2950,6 +2950,7 @@ git commit -m "feat: deduplicación y pipeline de evaluación del núcleo"
 - Consumes: nada del núcleo
 - Produces:
   - `Historial` (Protocol) con `ids_enviados() -> set[str]`, `registrar(ids, fecha) -> None`, `numero_edicion() -> int`
+  - `HistorialIlegible(Exception)`: el archivo existe pero no se puede usar (JSON roto, bytes que no son UTF-8, forma inesperada). La lanza el constructor de `HistorialJSON`; nunca se trata como historial vacío
   - `HistorialJSON(ruta: Path)`
 
 - [ ] **Step 1: Escribir el test que falla**
@@ -2958,6 +2959,10 @@ git commit -m "feat: deduplicación y pipeline de evaluación del núcleo"
 # tests/test_almacenamiento.py
 from datetime import date
 
+import pytest
+
+from boletin_empleos.almacenamiento import json_repo
+from boletin_empleos.almacenamiento.base import HistorialIlegible
 from boletin_empleos.almacenamiento.json_repo import HistorialJSON
 
 
@@ -2998,10 +3003,79 @@ def test_el_archivo_es_json_legible_y_ordenado(tmp_path):
     assert datos["ediciones"][0]["ids"] == ["spe:1", "spe:2"], "ordenado para diffs limpios en git"
 
 
-def test_tolera_un_archivo_corrupto(tmp_path):
+def test_un_archivo_corrupto_aborta_sin_tocar_el_original(tmp_path):
+    # Partir de cero reenviaría todo lo ya enviado y el siguiente registrar
+    # sobrescribiría el original (spec §15.4).
     ruta = tmp_path / "historial.json"
     ruta.write_text("{ esto no es json", encoding="utf-8")
-    assert HistorialJSON(ruta).ids_enviados() == set()
+
+    with pytest.raises(HistorialIlegible):
+        HistorialJSON(ruta)
+    assert ruta.read_text("utf-8") == "{ esto no es json", "el original no se toca"
+
+
+@pytest.mark.parametrize(
+    "contenido",
+    [
+        b"[]",
+        b"null",
+        b"42",
+        b"{}",
+        b'{"ediciones": null}',
+        b'{"ediciones": [null]}',
+        b'{"ediciones": [{"ids": null}]}',
+        b'{"ediciones": [{"ids": "spe:12"}]}',
+        b'{"ediciones": [{"ids": [1, 2]}]}',
+        b'{"ediciones": [{"ids": ["magneto:dise\xf1o"]}]}',
+    ],
+    ids=[
+        "raiz_lista",
+        "raiz_null",
+        "raiz_numero",
+        "sin_ediciones",
+        "ediciones_null",
+        "edicion_null",
+        "ids_null",
+        "ids_cadena_suelta",
+        "ids_enteros",
+        "bytes_latin1",
+    ],
+)
+def test_forma_o_codificacion_invalida_aborta_sin_tocar_el_original(tmp_path, contenido):
+    # Un "ids" como cadena se iteraría letra a letra y uno con enteros nunca
+    # coincidiría con los ids reales: las ofertas se reenviarían sin aviso.
+    ruta = tmp_path / "historial.json"
+    ruta.write_bytes(contenido)
+
+    with pytest.raises(HistorialIlegible):
+        HistorialJSON(ruta)
+    assert ruta.read_bytes() == contenido
+
+
+def test_un_bom_utf8_no_se_trata_como_corrupcion(tmp_path):
+    # El Bloc de notas de Windows antepone un BOM al guardar en UTF-8.
+    ruta = tmp_path / "historial.json"
+    valido = '{"ediciones": [{"numero": 1, "fecha": "2026-09-22", "ids": ["spe:1"]}]}'
+    ruta.write_bytes(b"\xef\xbb\xbf" + valido.encode("utf-8"))
+
+    h = HistorialJSON(ruta)
+    assert h.ids_enviados() == {"spe:1"}
+    assert h.numero_edicion() == 2
+
+
+def test_una_escritura_fallida_conserva_el_historial_anterior(tmp_path, monkeypatch):
+    ruta = tmp_path / "historial.json"
+    HistorialJSON(ruta).registrar({"spe:1"}, date(2026, 9, 22))
+    assert [p.name for p in tmp_path.iterdir()] == ["historial.json"], "no quedan temporales"
+    antes = ruta.read_bytes()
+
+    def reemplazo_que_falla(*_args):
+        raise OSError("job cancelado a mitad de la escritura")
+
+    monkeypatch.setattr(json_repo.os, "replace", reemplazo_que_falla)
+    with pytest.raises(OSError):
+        HistorialJSON(ruta).registrar({"spe:2"}, date(2026, 10, 6))
+    assert ruta.read_bytes() == antes, "la escritura es atómica: nunca queda un archivo a medias"
 ```
 
 - [ ] **Step 2: Ejecutar y verificar que falla**
@@ -3013,9 +3087,9 @@ Expected: FAIL con `ModuleNotFoundError`
 
 ```python
 # src/boletin_empleos/almacenamiento/__init__.py
-from boletin_empleos.almacenamiento.base import Historial
+from boletin_empleos.almacenamiento.base import Historial, HistorialIlegible
 
-__all__ = ["Historial"]
+__all__ = ["Historial", "HistorialIlegible"]
 ```
 
 ```python
@@ -3024,6 +3098,14 @@ __all__ = ["Historial"]
 
 from datetime import date
 from typing import Protocol
+
+
+class HistorialIlegible(Exception):
+    """El historial existe pero no se puede usar: corrupto, mal codificado o con otra forma.
+
+    Nunca se trata como historial vacío: eso reenviaría todas las ofertas ya enviadas
+    (spec §15.4). El orquestador no la captura: la ejecución falla y no se commitea nada.
+    """
 
 
 class Historial(Protocol):
@@ -3048,14 +3130,32 @@ No se usa la caché de GitHub Actions: se borra a los 7 días sin uso, lo que la
 vuelve inservible para un ciclo quincenal (spec §11).
 
 Se escribe ordenado y con indentación para que los diffs en git sean legibles.
+
+Un archivo que existe pero no se puede usar (JSON roto, bytes que no son UTF-8,
+marcadores de conflicto de merge, forma inesperada) lanza HistorialIlegible y no
+se toca. Partir de cero reenviaría todas las ofertas ya enviadas (spec §15.4) y el
+siguiente registrar sobrescribiría el original; una ejecución fallida en Actions
+es visible y no commitea nada (spec §12: degradación visible, nunca silenciosa).
 """
 
 import json
-import logging
+import os
 from datetime import date
 from pathlib import Path
 
-_log = logging.getLogger(__name__)
+from boletin_empleos.almacenamiento.base import HistorialIlegible
+
+
+def _forma_valida(datos: object) -> bool:
+    """{"ediciones": [{"ids": [str, ...], ...}, ...]}. Lo demás no se adivina."""
+    if not isinstance(datos, dict) or not isinstance(datos.get("ediciones"), list):
+        return False
+    return all(
+        isinstance(ed, dict)
+        and isinstance(ed.get("ids"), list)
+        and all(isinstance(i, str) for i in ed["ids"])
+        for ed in datos["ediciones"]
+    )
 
 
 class HistorialJSON:
@@ -3067,35 +3167,52 @@ class HistorialJSON:
         if not self._ruta.exists():
             return {"ediciones": []}
         try:
-            return json.loads(self._ruta.read_text("utf-8"))
-        except (json.JSONDecodeError, OSError) as e:
-            _log.error("historial ilegible en %s (%s); se parte de cero", self._ruta, e)
-            return {"ediciones": []}
+            # utf-8-sig: el BOM que antepone el Bloc de notas no es corrupción.
+            datos = json.loads(self._ruta.read_text("utf-8-sig"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+            raise HistorialIlegible(f"historial ilegible en {self._ruta}: {e}") from e
+        if not _forma_valida(datos):
+            raise HistorialIlegible(
+                f"historial con forma inesperada en {self._ruta}: se esperaba "
+                '{"ediciones": [{"numero": ..., "fecha": ..., "ids": ["..."]}]}'
+            )
+        return datos
 
     def ids_enviados(self) -> set[str]:
-        return {i for ed in self._datos.get("ediciones", []) for i in ed.get("ids", [])}
+        return {i for ed in self._datos["ediciones"] for i in ed["ids"]}
 
     def numero_edicion(self) -> int:
-        return len(self._datos.get("ediciones", [])) + 1
+        return len(self._datos["ediciones"]) + 1
 
     def registrar(self, ids: set[str], fecha: date) -> None:
-        self._datos.setdefault("ediciones", []).append(
+        self._datos["ediciones"].append(
             {
                 "numero": self.numero_edicion(),
                 "fecha": fecha.isoformat(),
                 "ids": sorted(ids),
             }
         )
+        texto = json.dumps(self._datos, ensure_ascii=False, indent=2) + "\n"
         self._ruta.parent.mkdir(parents=True, exist_ok=True)
-        self._ruta.write_text(
-            json.dumps(self._datos, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
+        # Atómica: si el job se cancela a mitad, queda el archivo anterior entero y
+        # no uno truncado. newline="\n" evita CRLF al correr en Windows.
+        temporal = self._ruta.with_name(self._ruta.name + ".tmp")
+        temporal.write_text(texto, encoding="utf-8", newline="\n")
+        os.replace(temporal, self._ruta)
 ```
+
+**Por qué un historial ilegible no se tolera:** partir de cero reenviaría a los egresados todas las
+ofertas ya enviadas (spec §15.4), reiniciaría la numeración y el siguiente `registrar` sobrescribiría
+el original, que el workflow commitearía. Con `HistorialIlegible` la ejecución falla antes de
+consultar las fuentes (la CLI construye el historial primero), Actions la marca en rojo y no se
+commitea nada; el archivo se repara a mano o se recupera la versión anterior con git. Un BOM no
+cuenta como corrupción. La escritura es atómica (`.tmp` + `os.replace`) para que una cancelación del
+job no deje el archivo truncado.
 
 - [ ] **Step 4: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_almacenamiento.py -v`
-Expected: PASS — 5 tests
+Expected: PASS — 17 tests
 
 - [ ] **Step 5: Formatear y commitear**
 
