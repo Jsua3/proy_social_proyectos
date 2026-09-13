@@ -2352,6 +2352,8 @@ coordinación debe revisarlas (spec §8.4). Viven en `config.toml` para poder aj
 # tests/test_nucleo_legitimidad.py
 from datetime import UTC, datetime
 
+import pytest
+
 from boletin_empleos.config import UmbralesLegitimidad
 from boletin_empleos.modelos import Modalidad, Oferta
 from boletin_empleos.nucleo.legitimidad import puntuar_legitimidad
@@ -2413,6 +2415,22 @@ def test_dominio_acortado_penaliza_fuerte():
     puntaje, notas = puntuar_legitimidad(o, 0.95, CFG)
     assert puntaje < 0.6
     assert any("bit.ly" in n for n in notas)
+
+
+@pytest.mark.parametrize(
+    ("url", "penalizada"),
+    [
+        ("https://bit.ly/vacante123", True),
+        ("https://www.bit.ly/vacante123", True),  # subdominio del acortador
+        ("https://export.media/vacante", False),  # contiene "t.me" como subcadena
+        ("https://smart.mercadolibre.com/x", False),  # también contiene "t.me"
+        ("https://cutt.ly.empresa.co/x", False),  # rótulo dentro de un dominio ajeno
+    ],
+)
+def test_dominio_sospechoso_se_compara_contra_el_host(url, penalizada):
+    """Por subcadena de la URL, "t.me" casaría dentro de export.media."""
+    puntaje, _ = puntuar_legitimidad(_oferta(url=url), 0.95, CFG)
+    assert (puntaje < 0.95) is penalizada
 
 
 def test_salario_fuera_de_rango_penaliza():
@@ -2479,7 +2497,10 @@ def puntuar_legitimidad(
 ) -> tuple[float, list[str]]:
     """Devuelve (puntaje 0.0–1.0, notas). 0.0 significa descarte inmediato."""
     texto = normalizar_texto(f"{oferta.titulo} {oferta.descripcion}")
-    url = str(oferta.url).lower()
+    # Se compara contra el HOST, no contra la URL entera: "t.me" es subcadena de
+    # export.media o de smart.mercadolibre.com, y por subcadena restaría 0.40 a
+    # ofertas legítimas. `HttpUrl.host` evita `urllib`, prohibido en el núcleo.
+    host = (oferta.url.host or "").lower()
     notas: list[str] = []
 
     # --- Señales de descarte inmediato ---
@@ -2500,7 +2521,7 @@ def puntuar_legitimidad(
         notas.append("el contacto es por mensajería personal")
 
     for dominio in cfg.dominios_sospechosos:
-        if dominio.lower() in url:
+        if _es_el_host(host, dominio):
             puntaje -= _PENALIZACION_FUERTE
             notas.append(f"enlace hacia dominio sospechoso: {dominio}")
             break
@@ -2526,6 +2547,16 @@ def puntuar_legitimidad(
     return (round(max(0.0, min(1.0, puntaje)), 4), notas)
 
 
+def _es_el_host(host: str, dominio: str) -> bool:
+    """¿Es `dominio` el host de la oferta o un dominio padre suyo?
+
+    `www.bit.ly` cuenta como `bit.ly`; `cutt.ly.empresa.co` no cuenta como `cutt.ly`,
+    porque ahí el acortador es solo un rótulo dentro de un dominio ajeno.
+    """
+    dominio = dominio.lower().strip(".")
+    return host == dominio or host.endswith("." + dominio)
+
+
 def _salario_fuera_de_rango(oferta: Oferta, cfg: UmbralesLegitimidad) -> bool:
     """Solo se evalúa en pesos colombianos: un salario en USD es normal en remoto."""
     if oferta.moneda != "COP":
@@ -2540,7 +2571,7 @@ def _salario_fuera_de_rango(oferta: Oferta, cfg: UmbralesLegitimidad) -> bool:
 - [ ] **Step 4: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_nucleo_legitimidad.py -v`
-Expected: PASS — 9 tests
+Expected: PASS — 14 tests
 
 - [ ] **Step 5: Formatear y commitear**
 
