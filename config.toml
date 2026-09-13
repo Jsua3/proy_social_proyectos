@@ -58,11 +58,16 @@ excluidos = [
 # de enumerarlas.
 #
 # Esta lista es solo para los casos en que la morfología acierta pero el resultado
-# colisiona igual. Hoy hay uno:
-sin_flexion = [
-  "conductor",  # es sustantivo de agente, pero "conductores" también son cables:
-                # excluiría ofertas legítimas de hardware o sistemas embebidos
-]
+# colisiona igual, y SOLO surte efecto sobre `cargos` y `tecnologias`: sobre
+# `excluidos` se ignora a propósito, porque ahí negar la flexión abre agujeros en
+# vez de cerrarlos.
+#
+# Hoy está vacía. `conductor` estuvo aquí y hubo que sacarlo: vive en `excluidos`,
+# así que negarle la flexión dejaba pasar "Conductores"/"Conductora con manejo de
+# app Android" —ofertas de repartidor, altísima frecuencia en Colombia— mientras
+# seguía excluyendo el singular. El riesgo que lo justificaba (una oferta de
+# firmware que mencione "conductores eléctricos") es mucho menos frecuente.
+sin_flexion = []
 
 [experiencia]
 # Descartan por exigir un nivel de experiencia demasiado alto.

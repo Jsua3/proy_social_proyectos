@@ -175,20 +175,27 @@ def test_negar_la_flexion_no_es_negar_el_termino():
     assert puntuar_relevancia(_oferta("Ingeniero Angular"), vocabulario) > 0.35
 
 
-def test_sin_flexion_cubre_el_agente_que_colisiona_igual():
-    """`conductor` es sustantivo de agente, pero "conductores" también son cables."""
+@pytest.mark.parametrize(
+    "titulo",
+    [
+        "Conductor con manejo de App",
+        "Conductores con manejo de App",
+        "Conductora con manejo de App",
+    ],
+)
+def test_sin_flexion_no_debilita_la_lista_de_excluidos(titulo):
+    """`sin_flexion` no puede aplicarse a `excluidos`: ahí abre agujeros.
+
+    Negar la flexión estrecha el emparejamiento. En una lista de inclusión eso
+    reduce falsos positivos; en una de exclusión reduce las exclusiones. Con
+    `conductor` en `sin_flexion`, el singular se excluía y el plural se colaba.
+    """
     vocabulario = Vocabulario(
-        cargos=["desarrollador"],
-        tecnologias=["python"],
+        cargos=["android"],
         excluidos=["conductor"],
-        sin_flexion=["conductor"],
+        sin_flexion=["conductor"],  # se declara, pero sobre `excluidos` debe ignorarse
     )
-    # Una oferta de embebidos que mencione conductores eléctricos NO debe anularse.
-    puntaje = puntuar_relevancia(
-        _oferta("Desarrollador de firmware", "Diseño de conductores eléctricos en Python."),
-        vocabulario,
-    )
-    assert puntaje > 0.35
+    assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
 
 
 def test_termino_excluido_anula_la_relevancia():

@@ -109,9 +109,19 @@ def puntuar_relevancia(
     sin_flexion = {normalizar_texto(s) for s in vocabulario.sin_flexion}
 
     def flexionable(termino: str) -> bool:
+        """`sin_flexion` solo aplica a las listas de INCLUSIÓN, nunca a `excluidos`.
+
+        Negar la flexión estrecha el emparejamiento, y esa asimetría importa:
+        en `cargos` y `tecnologias` estrechar reduce falsos positivos, que es lo
+        que se busca; en `excluidos` estrechar reduce las EXCLUSIONES, es decir
+        aumenta los falsos positivos. Con `conductor` en `sin_flexion`,
+        "Conductor" se excluía pero "Conductores" y "Conductora" se colaban.
+        """
         return normalizar_texto(termino) not in sin_flexion
 
-    if any(contiene(completo, e, flexionable(e)) for e in vocabulario.excluidos):
+    # La lista de exclusión se empareja SIEMPRE con flexión: una exclusión de más
+    # es ruido menos en el boletín; una exclusión de menos es basura dentro.
+    if any(contiene(completo, e) for e in vocabulario.excluidos):
         return 0.0
 
     terminos = vocabulario.cargos + vocabulario.tecnologias
