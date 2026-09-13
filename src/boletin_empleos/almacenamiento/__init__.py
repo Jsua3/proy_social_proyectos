@@ -1,3 +1,3 @@
-from boletin_empleos.almacenamiento.base import Historial
+from boletin_empleos.almacenamiento.base import Historial, HistorialIlegible
 
-__all__ = ["Historial"]
+__all__ = ["Historial", "HistorialIlegible"]

@@ -4,14 +4,32 @@ No se usa la caché de GitHub Actions: se borra a los 7 días sin uso, lo que la
 vuelve inservible para un ciclo quincenal (spec §11).
 
 Se escribe ordenado y con indentación para que los diffs en git sean legibles.
+
+Un archivo que existe pero no se puede usar (JSON roto, bytes que no son UTF-8,
+marcadores de conflicto de merge, forma inesperada) lanza HistorialIlegible y no
+se toca. Partir de cero reenviaría todas las ofertas ya enviadas (spec §15.4) y el
+siguiente registrar sobrescribiría el original; una ejecución fallida en Actions
+es visible y no commitea nada (spec §12: degradación visible, nunca silenciosa).
 """
 
 import json
-import logging
+import os
 from datetime import date
 from pathlib import Path
 
-_log = logging.getLogger(__name__)
+from boletin_empleos.almacenamiento.base import HistorialIlegible
+
+
+def _forma_valida(datos: object) -> bool:
+    """{"ediciones": [{"ids": [str, ...], ...}, ...]}. Lo demás no se adivina."""
+    if not isinstance(datos, dict) or not isinstance(datos.get("ediciones"), list):
+        return False
+    return all(
+        isinstance(ed, dict)
+        and isinstance(ed.get("ids"), list)
+        and all(isinstance(i, str) for i in ed["ids"])
+        for ed in datos["ediciones"]
+    )
 
 
 class HistorialJSON:
@@ -23,26 +41,35 @@ class HistorialJSON:
         if not self._ruta.exists():
             return {"ediciones": []}
         try:
-            return json.loads(self._ruta.read_text("utf-8"))
-        except (json.JSONDecodeError, OSError) as e:
-            _log.error("historial ilegible en %s (%s); se parte de cero", self._ruta, e)
-            return {"ediciones": []}
+            # utf-8-sig: el BOM que antepone el Bloc de notas no es corrupción.
+            datos = json.loads(self._ruta.read_text("utf-8-sig"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+            raise HistorialIlegible(f"historial ilegible en {self._ruta}: {e}") from e
+        if not _forma_valida(datos):
+            raise HistorialIlegible(
+                f"historial con forma inesperada en {self._ruta}: se esperaba "
+                '{"ediciones": [{"numero": ..., "fecha": ..., "ids": ["..."]}]}'
+            )
+        return datos
 
     def ids_enviados(self) -> set[str]:
-        return {i for ed in self._datos.get("ediciones", []) for i in ed.get("ids", [])}
+        return {i for ed in self._datos["ediciones"] for i in ed["ids"]}
 
     def numero_edicion(self) -> int:
-        return len(self._datos.get("ediciones", [])) + 1
+        return len(self._datos["ediciones"]) + 1
 
     def registrar(self, ids: set[str], fecha: date) -> None:
-        self._datos.setdefault("ediciones", []).append(
+        self._datos["ediciones"].append(
             {
                 "numero": self.numero_edicion(),
                 "fecha": fecha.isoformat(),
                 "ids": sorted(ids),
             }
         )
+        texto = json.dumps(self._datos, ensure_ascii=False, indent=2) + "\n"
         self._ruta.parent.mkdir(parents=True, exist_ok=True)
-        self._ruta.write_text(
-            json.dumps(self._datos, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
+        # Atómica: si el job se cancela a mitad, queda el archivo anterior entero y
+        # no uno truncado. newline="\n" evita CRLF al correr en Windows.
+        temporal = self._ruta.with_name(self._ruta.name + ".tmp")
+        temporal.write_text(texto, encoding="utf-8", newline="\n")
+        os.replace(temporal, self._ruta)
