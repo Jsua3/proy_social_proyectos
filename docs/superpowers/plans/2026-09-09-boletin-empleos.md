@@ -4088,10 +4088,18 @@ git commit -m "feat: entrega por consola y por SMTP"
 **Files:**
 - Create: `src/boletin_empleos/cli.py`
 - Create: `tests/test_cli.py`
+- Create: `tests/test_fuentes_interpretar.py`
+- Modify: `src/boletin_empleos/fuentes/base.py` — `interpretar` en el puerto
+- Modify: `src/boletin_empleos/fuentes/comun.py` — `json_desde_texto`
+- Modify: `src/boletin_empleos/fuentes/remotive.py`, `remoteok.py`, `spe.py`, `magneto.py` — `interpretar`
 
 **Interfaces:**
 - Consumes: absolutamente todo lo anterior
-- Produces: `main(argv=None) -> int`, `construir_fuentes() -> list[FuenteEmpleo]`, `ejecutar(args) -> int`
+- Produces:
+  - `interpretar(contenido: str) -> list[Oferta]` en el puerto `FuenteEmpleo` y en los cuatro adaptadores
+  - `json_desde_texto(texto: str) -> Any | None`
+  - `main(argv=None) -> int`, `construir_fuentes() -> list[FuenteEmpleo]`, `ejecutar(args) -> int`
+  - `FuenteDesdeArchivo(fuente, archivo)` y `ARCHIVOS_DE_MUESTRA: dict[str, str]`
 
 **Reglas de degradación (spec §12):**
 - Una fuente caída no tumba el boletín: se envía y el pie lo declara.
@@ -4105,16 +4113,326 @@ Es deliberado que la alerta llegue **al mantenedor y no a la directora**: un fal
 recolección es un problema de mantenimiento, no información útil para la coordinación. La directora
 solo debe recibir boletines. Queda documentado en el README (Task 16).
 
-- [ ] **Step 1: Escribir el test que falla**
+**Tres decisiones que fija este CLI (spec §12, §14 y §15):**
+- **`--dry-run` no toca el historial.** Renderiza y deja el HTML en disco, pero no registra ofertas
+  como enviadas. Si lo hiciera, un dry-run lanzado desde GitHub Actions consumiría las ofertas de la
+  edición y la coordinación nunca las recibiría.
+- **`--desde DIR` genera el boletín desde respuestas guardadas, sin red (criterio 1).** Cada adaptador
+  real interpreta su muestra con `interpretar`, así que el boletín de muestra cita a las mismas fuentes
+  y pasa por los mismos filtros que el real. Implica `--dry-run`, no verifica enlaces, no usa el LLM, y
+  toma como "hoy" la fecha de la publicación más reciente: con la fecha real las muestras envejecen y el
+  filtro de vigencia las descartaría todas pasados 30 días.
+- **`--solo-fuente NOMBRE`** limita la corrida a una fuente. Un nombre desconocido es error de
+  configuración (código 1).
+
+- [ ] **Step 1: Escribir el test que falla para `interpretar`**
+
+```python
+# tests/test_fuentes_interpretar.py
+"""`interpretar` y `obtener` producen las mismas ofertas a partir del mismo cuerpo.
+
+Es lo que permite generar el boletín desde muestras guardadas, sin red (spec §15,
+criterio 1), con la garantía de que el resultado es el que habría dado la fuente viva.
+"""
+
+from pathlib import Path
+
+import httpx
+import pytest
+import respx
+
+from boletin_empleos.fuentes.magneto import FuenteMagneto
+from boletin_empleos.fuentes.remoteok import FuenteRemoteOK
+from boletin_empleos.fuentes.remotive import FuenteRemotive
+from boletin_empleos.fuentes.spe import FuenteSPE
+
+MUESTRAS = Path(__file__).parent / "fixtures"
+URL_VERSION_SPE = "https://www.buscadordeempleo.gov.co/backbue/v1/version"
+
+CASOS = [
+    pytest.param(
+        lambda: FuenteSPE(consultas=[{"departamento": "Quindio"}], max_paginas=1, pausa=0.0),
+        "spe_pagina.json",
+        "https://www.buscadordeempleo.gov.co/backbue/v1/vacantes/resultados",
+        id="spe",
+    ),
+    pytest.param(
+        lambda: FuenteMagneto(rutas=["/co/trabajos/buscar"], pausa=0.0),
+        "magneto_listado.html",
+        "https://www.magneto365.com/co/trabajos/buscar",
+        id="magneto",
+    ),
+    pytest.param(FuenteRemotive, "remotive.json", "https://remotive.com/api/remote-jobs", id="remotive"),
+    pytest.param(FuenteRemoteOK, "remoteok.json", "https://remoteok.com/api", id="remoteok"),
+]
+
+
+@respx.mock
+@pytest.mark.parametrize(("crear", "archivo", "url"), CASOS)
+def test_interpretar_equivale_a_obtener(crear, archivo, url):
+    cuerpo = (MUESTRAS / archivo).read_text(encoding="utf-8")
+    respx.get(URL_VERSION_SPE).mock(return_value=httpx.Response(200, json={"backVersion": "2.4.0"}))
+    respx.get(url__startswith=url).mock(return_value=httpx.Response(200, text=cuerpo))
+
+    por_red = crear().obtener()
+    desde_muestra = crear().interpretar(cuerpo)
+
+    assert desde_muestra, "la muestra real debe producir ofertas"
+    assert [o.id for o in desde_muestra] == [o.id for o in por_red]
+
+
+@pytest.mark.parametrize("fabrica", [FuenteSPE, FuenteMagneto, FuenteRemotive, FuenteRemoteOK])
+@pytest.mark.parametrize(
+    "contenido",
+    [
+        "",
+        "no es json ni html",
+        "[1, 2, 3]",
+        '{"jobs": null}',
+        '{"resultados": "texto"}',
+        '[{"legal": "aviso"}, "texto", 7]',
+    ],
+)
+def test_interpretar_nunca_lanza(fabrica, contenido):
+    """Un adaptador nunca lanza, tampoco cuando lee una muestra corrupta."""
+    assert fabrica().interpretar(contenido) == []
+```
+
+- [ ] **Step 2: Ejecutar y verificar que falla**
+
+Run: `uv run pytest tests/test_fuentes_interpretar.py -v`
+Expected: FAIL con `AttributeError: ... has no attribute 'interpretar'`
+
+- [ ] **Step 3: Implementar `interpretar` en el puerto y en los cuatro adaptadores**
+
+En `src/boletin_empleos/fuentes/comun.py` añade (con `import json` y `from typing import Any`):
+
+```python
+def json_desde_texto(texto: str) -> Any | None:
+    """Interpreta `texto` como JSON; `None` si no lo es. Nunca lanza."""
+    try:
+        return json.loads(texto)
+    except ValueError:
+        return None
+```
+
+En `src/boletin_empleos/fuentes/base.py`, dentro de `FuenteEmpleo` y a continuación de `obtener`:
+
+```python
+    def interpretar(self, contenido: str) -> list[Oferta]:
+        """Ofertas a partir del cuerpo de una respuesta ya descargada.
+
+        Hace lo mismo que `obtener`, sin red: permite generar el boletín desde
+        muestras guardadas (spec §15, criterio 1). Nunca lanza.
+        """
+        ...
+```
+
+En `src/boletin_empleos/fuentes/remotive.py` (añade `from typing import Any` y `json_desde_texto` al
+import de `comun`), sustituye `obtener` por estos tres métodos. `_normalizar` no cambia:
+
+```python
+    def obtener(self) -> list[Oferta]:
+        with crear_cliente() as cliente:
+            respuesta = reintentar(
+                lambda: cliente.get(
+                    _URL, params={"category": self._categoria, "limit": self._limite}
+                ).raise_for_status()
+            )
+        if respuesta is None:
+            _log.error("remotive: no se pudo obtener la lista de ofertas")
+            return []
+        return self._desde_datos(json_de(respuesta))
+
+    def interpretar(self, contenido: str) -> list[Oferta]:
+        return self._desde_datos(json_desde_texto(contenido))
+
+    def _desde_datos(self, datos: Any) -> list[Oferta]:
+        trabajos = datos.get("jobs") if isinstance(datos, dict) else None
+        if not isinstance(trabajos, list):
+            _log.error("remotive: la respuesta no tiene la forma esperada")
+            return []
+
+        ahora = datetime.now(UTC)
+        ofertas: list[Oferta] = []
+        for bruto in trabajos:
+            if not isinstance(bruto, dict):
+                continue
+            oferta = self._normalizar(bruto, ahora)
+            if oferta is not None:
+                ofertas.append(oferta)
+        return ofertas
+```
+
+En `src/boletin_empleos/fuentes/remoteok.py` (mismos imports), sustituye `obtener` por:
+
+```python
+    def obtener(self) -> list[Oferta]:
+        with crear_cliente() as cliente:
+            respuesta = reintentar(lambda: cliente.get(_URL).raise_for_status())
+        if respuesta is None:
+            _log.error("remoteok: no se pudo obtener la lista de ofertas")
+            return []
+        return self._desde_datos(json_de(respuesta))
+
+    def interpretar(self, contenido: str) -> list[Oferta]:
+        return self._desde_datos(json_desde_texto(contenido))
+
+    def _desde_datos(self, datos: Any) -> list[Oferta]:
+        if not isinstance(datos, list):
+            _log.error("remoteok: la respuesta no tiene la forma esperada")
+            return []
+
+        ahora = datetime.now(UTC)
+        ofertas: list[Oferta] = []
+        for bruto in datos:
+            # El primer elemento es el aviso legal, no una oferta. Un elemento que no sea
+            # objeto rompería _normalizar, que solo sabe leer diccionarios.
+            if not isinstance(bruto, dict) or "legal" in bruto:
+                continue
+            oferta = self._normalizar(bruto, ahora)
+            if oferta is not None:
+                ofertas.append(oferta)
+        return ofertas
+```
+
+En `src/boletin_empleos/fuentes/spe.py` (añade `from collections.abc import Iterable`,
+`from typing import Any` y `json_desde_texto` al import de `comun`). Sustituye `obtener` y el cuerpo del
+bucle de `_recorrer`, y añade `interpretar`, `_normalizar_filas` y la función de módulo
+`_filas_de_pagina`. **Conserva la línea `with crear_cliente(...)` exactamente como está**, con la
+constante del intermedio que dejó la Task 11:
+
+```python
+    def obtener(self) -> list[Oferta]:
+        ahora = datetime.now(UTC)
+        vistos: set[str] = set()
+        ofertas: list[Oferta] = []
+
+        with crear_cliente(verificacion=contexto_ssl([INTERMEDIO_SPE])) as cliente:
+            self._verificar_version(cliente)
+            for consulta in self._consultas:
+                filas = self._recorrer(cliente, consulta)
+                ofertas.extend(self._normalizar_filas(filas, ahora, vistos))
+        return ofertas
+
+    def interpretar(self, contenido: str) -> list[Oferta]:
+        """Ofertas de UNA página de resultados ya descargada."""
+        filas = _filas_de_pagina(json_desde_texto(contenido))
+        if filas is None:
+            _log.error("spe: el contenido no tiene la forma de una página de resultados")
+            return []
+        return self._normalizar_filas(filas, datetime.now(UTC), set())
+
+    def _normalizar_filas(
+        self, filas: Iterable[dict], ahora: datetime, vistos: set[str]
+    ) -> list[Oferta]:
+        """Normaliza las filas omitiendo las ya vistas: una vacante sale en varias consultas."""
+        ofertas: list[Oferta] = []
+        for bruto in filas:
+            codigo = str(bruto.get("CODIGO_VACANTE", ""))
+            if not codigo or codigo in vistos:
+                continue
+            vistos.add(codigo)
+            oferta = self._normalizar(bruto, ahora)
+            if oferta is not None:
+                ofertas.append(oferta)
+        return ofertas
+```
+
+En `_recorrer`, desde `datos = json_de(respuesta)` hasta `yield from ...`, el bloque queda así:
+
+```python
+            datos = json_de(respuesta)
+            filas = _filas_de_pagina(datos)
+            if filas is None:
+                _log.error("spe: respuesta sin la forma esperada en %s p%d", consulta, pagina)
+                return
+
+            # `totalPages` como cadena, nulo o negativo se trata como una sola página.
+            total = datos.get("totalPages", 1)
+            total_paginas = total if isinstance(total, int) and total > 0 else 1
+            yield from filas
+```
+
+Y la función de módulo, junto a `_prestador`:
+
+```python
+def _filas_de_pagina(datos: Any) -> list[dict] | None:
+    """Filas de una página de resultados, o None si la página no tiene la forma esperada.
+
+    Un JSON válido no garantiza tipos correctos: `resultados: null` o `resultados` como
+    objeto propagarían TypeError fuera del adaptador, que nunca debe lanzar.
+    """
+    if not isinstance(datos, dict):
+        return None
+    resultados = datos.get("resultados")
+    if not isinstance(resultados, list):
+        return None
+    return [fila for fila in resultados if isinstance(fila, dict)]
+```
+
+En `src/boletin_empleos/fuentes/magneto.py` (añade `from collections.abc import Iterable, Iterator`),
+el bucle de `obtener` deja de deduplicar a mano:
+
+```python
+                if respuesta is None:
+                    _log.error("magneto: no se pudo obtener %s", ruta)
+                    continue
+                ofertas.extend(_sin_repetir(self._extraer(respuesta.text, ahora), vistos))
+                if self._pausa:
+                    time.sleep(self._pausa)
+        return ofertas
+
+    def interpretar(self, contenido: str) -> list[Oferta]:
+        """Ofertas de un listado HTML ya descargado."""
+        return list(_sin_repetir(self._extraer(contenido, datetime.now(UTC)), set()))
+```
+
+Y la función de módulo, junto a `_segmentos`:
+
+```python
+def _sin_repetir(ofertas: Iterable[Oferta], vistos: set[str]) -> Iterator[Oferta]:
+    """Las ofertas cuyo id aún no se ha visto, en orden, registrando cada id en `vistos`.
+
+    Un mismo aviso aparece en varias rutas: la búsqueda general y la de su ciudad.
+    """
+    for oferta in ofertas:
+        if oferta.id not in vistos:
+            vistos.add(oferta.id)
+            yield oferta
+```
+
+- [ ] **Step 4: Ejecutar y verificar que pasa**
+
+Run: `uv run pytest tests/test_fuentes_interpretar.py tests/test_fuente_spe.py tests/test_fuente_magneto.py tests/test_fuente_remotive.py tests/test_fuente_remoteok.py -v`
+Expected: PASS — 28 tests nuevos y todas las suites de los adaptadores sin cambios
+
+- [ ] **Step 5: Formatear y commitear**
+
+```bash
+uv run ruff format . && uv run ruff check --fix .
+git add src/boletin_empleos/fuentes/ tests/test_fuentes_interpretar.py
+git commit -m "feat: los adaptadores interpretan respuestas guardadas"
+```
+
+- [ ] **Step 6: Escribir el test que falla para el CLI**
 
 ```python
 # tests/test_cli.py
 from datetime import UTC, datetime
+from pathlib import Path
 
+import httpx
 import pytest
 
-from boletin_empleos.cli import main
+from boletin_empleos import cli
+from boletin_empleos.cli import construir_fuentes, main
+from boletin_empleos.entrega.consola import EntregaConsola
 from boletin_empleos.modelos import Modalidad, Oferta
+
+RAIZ = Path(__file__).resolve().parents[1]
+CONFIG = RAIZ / "config.toml"
+MUESTRAS = RAIZ / "tests" / "fixtures"
 
 
 class FuenteFalsa:
@@ -4129,11 +4447,16 @@ class FuenteFalsa:
     def obtener(self):
         return self._ofertas
 
+    def interpretar(self, contenido):
+        return self._ofertas
 
-def _oferta(id_, titulo="Desarrollador Backend Python"):
+
+def _oferta(id_, fuente="falsa", titulo="Desarrollador Backend Python"):
+    # `fuente` debe coincidir con el nombre de la FuenteFalsa: la confianza se busca por
+    # ese nombre y, si no casa, cae al 0.5 por defecto, a un paso del umbral de legitimidad.
     return Oferta(
         id=id_,
-        fuente="falsa",
+        fuente=fuente,
         titulo=titulo,
         empresa="Acme S.A.S.",
         ubicacion="Armenia, Quindío",
@@ -4146,70 +4469,151 @@ def _oferta(id_, titulo="Desarrollador Backend Python"):
 
 
 @pytest.fixture
-def sin_verificacion(monkeypatch):
+def aislado(monkeypatch):
+    """Sin red y sin LLM: los enlaces se dan por vivos y no hay clave de Anthropic.
+
+    Sin borrar la clave, quien la tenga en su entorno haría llamadas reales y pagas
+    cada vez que corre la suite.
+    """
     monkeypatch.setattr("boletin_empleos.cli.filtrar_enlaces_vivos", lambda evs: (evs, []))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
 
-def test_dry_run_escribe_el_boletin_sin_enviar(tmp_path, monkeypatch, sin_verificacion):
-    monkeypatch.setattr(
-        "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("falsa", [_oferta("f:1"), _oferta("f:2")])],
+def _fuentes(monkeypatch, *fuentes):
+    monkeypatch.setattr("boletin_empleos.cli.construir_fuentes", lambda: list(fuentes))
+
+
+def _correr(tmp_path, *extra):
+    """`--config` explícito: los tests no dependen del directorio desde el que se lanzan."""
+    return main(
+        [
+            *extra,
+            "--config",
+            str(CONFIG),
+            "--salida",
+            str(tmp_path / "salida"),
+            "--historial",
+            str(tmp_path / "h.json"),
+        ]
     )
-    salida = tmp_path / "salida"
-    codigo = main(["--dry-run", "--salida", str(salida), "--historial", str(tmp_path / "h.json")])
-
-    assert codigo == 0
-    assert list(salida.glob("*.html")), "el dry-run debe dejar el HTML en disco"
 
 
-def test_una_fuente_caida_no_tumba_el_boletin(tmp_path, monkeypatch, sin_verificacion):
-    monkeypatch.setattr(
-        "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("viva", [_oferta("v:1")]), FuenteFalsa("caida", [])],
+def test_dry_run_escribe_un_solo_boletin_sin_enviar(tmp_path, monkeypatch, aislado):
+    _fuentes(
+        monkeypatch,
+        FuenteFalsa("falsa", [_oferta("f:1"), _oferta("f:2", titulo="Programador Java")]),
     )
-    salida = tmp_path / "salida"
-    codigo = main(["--dry-run", "--salida", str(salida), "--historial", str(tmp_path / "h.json")])
 
-    assert codigo == 0
-    html = next(salida.glob("*.html")).read_text("utf-8")
+    assert _correr(tmp_path, "--dry-run") == 0
+    assert len(list((tmp_path / "salida").glob("*.html"))) == 1
+
+
+def test_dry_run_no_toca_el_historial(tmp_path, monkeypatch, aislado):
+    """Un dry-run lanzado desde Actions no puede consumir las ofertas de la edición real."""
+    _fuentes(monkeypatch, FuenteFalsa("falsa", [_oferta("f:1")]))
+
+    assert _correr(tmp_path, "--dry-run") == 0
+    assert _correr(tmp_path, "--dry-run") == 0, "la misma oferta sigue disponible"
+    assert not (tmp_path / "h.json").exists()
+
+
+def test_una_fuente_caida_no_tumba_el_boletin(tmp_path, monkeypatch, aislado):
+    _fuentes(
+        monkeypatch,
+        FuenteFalsa("viva", [_oferta("v:1", fuente="viva")]),
+        FuenteFalsa("caida", []),
+    )
+
+    assert _correr(tmp_path, "--dry-run") == 0
+    html = next((tmp_path / "salida").glob("*.html")).read_text("utf-8")
     assert "caida" in html and "no respondió" in html
 
 
-def test_sin_ninguna_oferta_no_se_envia_boletin(tmp_path, monkeypatch, sin_verificacion):
-    monkeypatch.setattr("boletin_empleos.cli.construir_fuentes", lambda: [FuenteFalsa("caida", [])])
-    salida = tmp_path / "salida"
-    codigo = main(["--dry-run", "--salida", str(salida), "--historial", str(tmp_path / "h.json")])
+def test_sin_ninguna_oferta_no_se_envia_boletin(tmp_path, monkeypatch, aislado):
+    _fuentes(monkeypatch, FuenteFalsa("caida", []))
 
-    assert codigo == 2, "sin fuentes vivas no se envía boletín vacío"
-    assert not list(salida.glob("*.html"))
+    assert _correr(tmp_path, "--dry-run") == 2, "sin fuentes vivas no se envía boletín vacío"
+    assert not list((tmp_path / "salida").glob("*.html"))
 
 
-def test_el_historial_evita_repetir_ofertas(tmp_path, monkeypatch, sin_verificacion):
+def test_el_historial_evita_repetir_ofertas(tmp_path, monkeypatch, aislado):
+    _fuentes(monkeypatch, FuenteFalsa("falsa", [_oferta("f:1")]))
+    # Envío real simulado: se entrega a disco, pero por el camino que registra el historial.
     monkeypatch.setattr(
-        "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+        "boletin_empleos.cli._crear_entrega",
+        lambda args, cfg: EntregaConsola(tmp_path / "enviados"),
     )
-    salida = tmp_path / "salida"
-    historial = tmp_path / "h.json"
 
-    assert main(["--dry-run", "--salida", str(salida), "--historial", str(historial)]) == 0
+    assert _correr(tmp_path) == 0
+    assert (tmp_path / "h.json").exists()
     # Segunda corrida: la misma oferta ya fue enviada, no quedan nuevas.
-    assert main(["--dry-run", "--salida", str(salida), "--historial", str(historial)]) == 3
+    assert _correr(tmp_path) == 3
+
+
+def test_solo_fuente_limita_la_recoleccion(tmp_path, monkeypatch, aislado):
+    _fuentes(
+        monkeypatch,
+        FuenteFalsa("uno", [_oferta("u:1", fuente="uno")]),
+        FuenteFalsa("dos", [_oferta("d:1", fuente="dos", titulo="Programador Java")]),
+    )
+
+    assert _correr(tmp_path, "--dry-run", "--solo-fuente", "dos") == 0
+    html = next((tmp_path / "salida").glob("*.html")).read_text("utf-8")
+    assert "Ofertas de dos." in html
+    assert "Ofertas de uno." not in html
+
+
+def test_solo_fuente_desconocida_es_error_de_configuracion(tmp_path, monkeypatch, aislado):
+    _fuentes(monkeypatch, FuenteFalsa("falsa", [_oferta("f:1")]))
+
+    assert _correr(tmp_path, "--dry-run", "--solo-fuente", "linkedin") == 1
+
+
+def test_desde_muestras_genera_el_boletin_sin_red(tmp_path, monkeypatch):
+    """Criterios 1 y 2 del spec: boletín válido desde muestras, sin red, citando cada fuente."""
+
+    def sin_red(*args, **kwargs):
+        raise AssertionError("--desde no debe tocar la red")
+
+    monkeypatch.setattr(httpx.Client, "send", sin_red)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "clave-que-no-debe-usarse")
+    claves = []
+    crear_real = cli.crear_enriquecedor
+
+    def espiar(clave):
+        claves.append(clave)
+        return crear_real(clave)
+
+    monkeypatch.setattr("boletin_empleos.cli.crear_enriquecedor", espiar)
+
+    assert _correr(tmp_path, "--desde", str(MUESTRAS)) == 0
+
+    archivos = list((tmp_path / "salida").glob("*.html"))
+    assert len(archivos) == 1
+    html = archivos[0].read_text("utf-8")
+    for fuente in construir_fuentes():
+        assert fuente.atribucion in html, f"falta la atribución de {fuente.nombre}"
+    assert claves == [None], "--desde no usa el LLM"
+    assert not (tmp_path / "h.json").exists(), "--desde implica dry-run"
 ```
 
-- [ ] **Step 2: Ejecutar y verificar que falla**
+**Si la última prueba da código 3** (ninguna oferta de las muestras sobrevive a los filtros con el
+`config.toml` real), **no relajes la prueba ni el filtro**: repórtalo como `DONE_WITH_CONCERNS` con los
+conteos del registro. Es exactamente el riesgo de volumen del spec §13 y lo decide la Task 16.
+
+- [ ] **Step 7: Ejecutar y verificar que falla**
 
 Run: `uv run pytest tests/test_cli.py -v`
 Expected: FAIL con `ModuleNotFoundError: No module named 'boletin_empleos.cli'`
 
-- [ ] **Step 3: Implementar el CLI**
+- [ ] **Step 8: Implementar el CLI**
 
 ```python
 # src/boletin_empleos/cli.py
 """Punto de entrada. Este archivo es lo único que GitHub Actions invoca.
 
 Códigos de salida:
-  0  boletín generado y entregado
+  0  boletín generado y entregado (con --dry-run: escrito en disco)
   1  error de configuración o de entrega
   2  ninguna fuente respondió — no se envía boletín vacío (spec §12)
   3  no hay ofertas nuevas para esta edición
@@ -4227,29 +4631,83 @@ from boletin_empleos.config import cargar_config
 from boletin_empleos.enriquecimiento import crear_enriquecedor
 from boletin_empleos.entrega.consola import EntregaConsola
 from boletin_empleos.entrega.smtp import EntregaSMTP
+from boletin_empleos.fuentes.base import FuenteEmpleo
 from boletin_empleos.fuentes.magneto import FuenteMagneto
 from boletin_empleos.fuentes.remoteok import FuenteRemoteOK
 from boletin_empleos.fuentes.remotive import FuenteRemotive
 from boletin_empleos.fuentes.spe import FuenteSPE
+from boletin_empleos.modelos import Oferta
 from boletin_empleos.nucleo.pipeline import evaluar
 from boletin_empleos.render.renderizador import DatosBoletin, FuenteUsada, renderizar
 from boletin_empleos.verificacion import filtrar_enlaces_vivos
 
 _log = logging.getLogger("boletin")
 
+# Muestra guardada de cada fuente dentro del directorio de --desde. Son las mismas
+# respuestas reales que usan los tests de los adaptadores. Una fuente sin entrada
+# aquí busca `<nombre>.json`.
+ARCHIVOS_DE_MUESTRA = {
+    "spe": "spe_pagina.json",
+    "magneto": "magneto_listado.html",
+    "remotive": "remotive.json",
+    "remoteok": "remoteok.json",
+}
 
-def construir_fuentes():
+
+def construir_fuentes() -> list[FuenteEmpleo]:
     return [FuenteSPE(), FuenteMagneto(), FuenteRemotive(), FuenteRemoteOK()]
+
+
+class FuenteDesdeArchivo:
+    """Un adaptador real que lee una respuesta guardada en vez de ir a la red.
+
+    Conserva nombre, atribución y confianza del adaptador envuelto: el boletín
+    generado desde muestras cita a las mismas fuentes que el real.
+    """
+
+    def __init__(self, fuente: FuenteEmpleo, archivo: Path) -> None:
+        self._fuente = fuente
+        self._archivo = archivo
+        self.nombre = fuente.nombre
+        self.base_permiso = fuente.base_permiso
+        self.atribucion = fuente.atribucion
+        self.url_atribucion = fuente.url_atribucion
+        self.confianza_base = fuente.confianza_base
+
+    def obtener(self) -> list[Oferta]:
+        try:
+            contenido = self._archivo.read_text(encoding="utf-8")
+        except OSError as e:
+            _log.error("%s: no se pudo leer la muestra %s (%s)", self.nombre, self._archivo, e)
+            return []
+        return self._fuente.interpretar(contenido)
+
+    def interpretar(self, contenido: str) -> list[Oferta]:
+        return self._fuente.interpretar(contenido)
 
 
 def _argumentos(argv):
     p = argparse.ArgumentParser(prog="boletin", description="Boletín quincenal de empleos")
-    p.add_argument("--dry-run", action="store_true", help="renderiza y guarda en disco sin enviar")
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="renderiza y guarda en disco, sin enviar y sin tocar el historial",
+    )
+    p.add_argument(
+        "--desde",
+        type=Path,
+        metavar="DIR",
+        help="genera desde respuestas guardadas en DIR, sin red (implica --dry-run)",
+    )
+    p.add_argument("--solo-fuente", metavar="NOMBRE", help="recolecta solo de esta fuente")
     p.add_argument("--config", type=Path, default=Path("config.toml"))
     p.add_argument("--historial", type=Path, default=Path("datos/historial.json"))
     p.add_argument("--salida", type=Path, default=Path("datos/ediciones"))
     p.add_argument("--verboso", action="store_true")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.desde is not None:
+        args.dry_run = True
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -4264,13 +4722,18 @@ def main(argv: list[str] | None = None) -> int:
 def ejecutar(args) -> int:
     cfg = cargar_config(args.config)
     historial = HistorialJSON(args.historial)
+    sin_red = args.desde is not None
 
-    ofertas = []
+    fuentes = _seleccionar_fuentes(args)
+    if fuentes is None:
+        return 1
+
+    ofertas: list[Oferta] = []
     fuentes_usadas: list[FuenteUsada] = []
     fuentes_caidas: list[str] = []
     confianza_por_fuente: dict[str, float] = {}
 
-    for fuente in construir_fuentes():
+    for fuente in fuentes:
         confianza_por_fuente[fuente.nombre] = fuente.confianza_base
         recogidas = fuente.obtener()
         if recogidas:
@@ -4291,18 +4754,23 @@ def ejecutar(args) -> int:
         _log.error("ninguna fuente respondió; no se envía un boletín vacío")
         return 2
 
-    resultado = evaluar(ofertas, historial.ids_enviados(), cfg, confianza_por_fuente, date.today())
-    vivas, muertas = filtrar_enlaces_vivos(resultado.incluidas)
+    hoy = _fecha_de_referencia(ofertas) if sin_red else date.today()
+    resultado = evaluar(ofertas, historial.ids_enviados(), cfg, confianza_por_fuente, hoy)
+    if sin_red:
+        # Las muestras son respuestas reales guardadas; sus enlaces no se verifican.
+        vivas, muertas = resultado.incluidas, []
+    else:
+        vivas, muertas = filtrar_enlaces_vivos(resultado.incluidas)
     _log.info("conteos: %s | enlaces muertos: %d", resultado.conteos, len(muertas))
 
     if not vivas:
         _log.warning("no hay ofertas nuevas para esta edición")
         return 3
 
-    enriquecedor = crear_enriquecedor(os.environ.get("ANTHROPIC_API_KEY"))
+    enriquecedor = crear_enriquecedor(None if sin_red else os.environ.get("ANTHROPIC_API_KEY"))
     datos = DatosBoletin(
         numero_edicion=historial.numero_edicion(),
-        fecha=date.today(),
+        fecha=hoy,
         editorial=enriquecedor.editorial(vivas, resultado.conteos),
         incluidas=vivas,
         descartadas=[*resultado.descartadas, *muertas],
@@ -4319,11 +4787,44 @@ def ejecutar(args) -> int:
     if not entrega.enviar(cfg.asunto, html, cfg.destinatarios):
         return 1
 
+    if args.dry_run:
+        # EntregaConsola ya dejó el HTML en --salida. Un dry-run no envía nada, así que
+        # tampoco marca ofertas como enviadas: si lo hiciera, la edición real las omitiría.
+        _log.info("dry-run con %d vacantes; el historial no se modifica", len(vivas))
+        return 0
+
     args.salida.mkdir(parents=True, exist_ok=True)
-    (args.salida / f"{date.today().isoformat()}.html").write_text(html, encoding="utf-8")
-    historial.registrar({e.oferta.id for e in vivas}, date.today())
+    (args.salida / f"{hoy.isoformat()}.html").write_text(html, encoding="utf-8")
+    historial.registrar({e.oferta.id for e in vivas}, hoy)
     _log.info("edición %d completada con %d vacantes", datos.numero_edicion, len(vivas))
     return 0
+
+
+def _seleccionar_fuentes(args) -> list[FuenteEmpleo] | None:
+    """Fuentes de esta corrida según --solo-fuente y --desde; None si el nombre no existe."""
+    fuentes = construir_fuentes()
+    if args.solo_fuente:
+        disponibles = ", ".join(f.nombre for f in fuentes)
+        fuentes = [f for f in fuentes if f.nombre == args.solo_fuente]
+        if not fuentes:
+            _log.error("fuente desconocida: %s (disponibles: %s)", args.solo_fuente, disponibles)
+            return None
+    if args.desde is not None:
+        fuentes = [
+            FuenteDesdeArchivo(f, args.desde / ARCHIVOS_DE_MUESTRA.get(f.nombre, f"{f.nombre}.json"))
+            for f in fuentes
+        ]
+    return fuentes
+
+
+def _fecha_de_referencia(ofertas: list[Oferta]) -> date:
+    """Con muestras guardadas, "hoy" es la fecha de la publicación más reciente.
+
+    Con la fecha real las muestras envejecen: pasados `dias_max_antiguedad` días el
+    filtro de vigencia las descartaría todas y `--desde` dejaría de producir boletín.
+    """
+    fechas = [o.fecha_publicacion for o in ofertas if o.fecha_publicacion is not None]
+    return max(fechas, default=date.today())
 
 
 def _crear_entrega(args, cfg):
@@ -4348,21 +4849,25 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Ejecutar y verificar que pasa**
+- [ ] **Step 9: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_cli.py -v`
-Expected: PASS — 4 tests
+Expected: PASS — 8 tests
 
-- [ ] **Step 5: Ejecutar la suite completa**
+- [ ] **Step 10: Ejecutar la suite completa y el criterio 1 a mano**
 
 Run: `uv run pytest -v`
 Expected: PASS — todos los tests de todas las tareas
 
-- [ ] **Step 6: Formatear y commitear**
+Run: `uv run boletin --desde tests/fixtures --salida datos/muestra --historial datos/muestra/h.json --verboso`
+Expected: código 0, un HTML en `datos/muestra/`, y en el registro los conteos por fuente. Borra
+`datos/muestra/` después: no se commitea.
+
+- [ ] **Step 11: Formatear y commitear**
 
 ```bash
 uv run ruff format . && uv run ruff check --fix .
-git add src/ tests/
+git add src/boletin_empleos/cli.py tests/test_cli.py
 git commit -m "feat: CLI y orquestación completa del boletín"
 ```
 
@@ -4484,8 +4989,21 @@ jobs:
             uv run boletin --verboso
           fi
 
+      - name: Publicar la vista previa del dry-run
+        # La coordinación aprueba el formato con este artefacto antes del primer envío
+        # real (spec §12). Se descarga desde la página de la ejecución en Actions.
+        if: success() && inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: boletin-vista-previa
+          path: datos/ediciones/
+          retention-days: 14
+
       - name: Guardar el historial y la edición
-        if: success()
+        # Un dry-run no envía nada, así que tampoco puede marcar ofertas como enviadas: si
+        # guardara el historial, la edición real siguiente las omitiría y la coordinación
+        # nunca las recibiría. En el cron `inputs.dry_run` es nulo y el paso sí corre.
+        if: success() && !inputs.dry_run
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -4513,10 +5031,15 @@ Corporación Universitaria Empresarial Alexander von Humboldt · Armenia, Quind�
 
 ```bash
 uv sync
-uv run boletin --dry-run     # genera sin enviar, deja el HTML en datos/ediciones/
-uv run boletin               # genera y envía
-uv run pytest                # pruebas
+uv run boletin --dry-run                     # genera sin enviar; deja el HTML en datos/ediciones/
+uv run boletin --desde tests/fixtures        # igual, desde respuestas guardadas y sin red
+uv run boletin --dry-run --solo-fuente spe   # prueba una sola fuente
+uv run boletin                               # genera, envía y registra el historial
+uv run pytest                                # pruebas
 ```
+
+Un `--dry-run` **no modifica el historial**: se puede repetir cuantas veces haga falta sin consumir
+las ofertas de la próxima edición.
 
 ## Fuentes y su base de permiso
 
@@ -4588,6 +5111,8 @@ git push
 2. Carga los secretos SMTP.
 3. Lanza el workflow a mano desde *Actions → Boletín de empleos → Run workflow* con `dry_run: true`.
 4. Confirma que termina en verde y que el registro muestra ofertas recolectadas por fuente.
+5. Descarga el artefacto `boletin-vista-previa` de esa ejecución y compártelo con la coordinación:
+   es la aprobación de formato que el spec §12 pide antes del primer envío real.
 
 ---
 
