@@ -3112,6 +3112,8 @@ git commit -m "feat: historial de envíos en JSON versionado"
 **Files:**
 - Create: `src/boletin_empleos/verificacion.py`
 - Create: `tests/test_verificacion.py`
+- Modify: `src/boletin_empleos/fuentes/spe.py` — renombrar `_INTERMEDIO_SPE` a `INTERMEDIO_SPE`
+  (pasa a ser público porque la verificación de enlaces necesita la misma cadena TLS)
 
 **Interfaces:**
 - Consumes: `Evaluacion`
@@ -3206,7 +3208,8 @@ import logging
 
 import httpx
 
-from boletin_empleos.http import crear_cliente
+from boletin_empleos.fuentes.spe import INTERMEDIO_SPE
+from boletin_empleos.http import contexto_ssl, crear_cliente
 from boletin_empleos.modelos import Decision, Evaluacion, MotivoDescarte
 
 _log = logging.getLogger(__name__)
@@ -3219,7 +3222,11 @@ def filtrar_enlaces_vivos(
     vivas: list[Evaluacion] = []
     muertas: list[Evaluacion] = []
 
-    with crear_cliente(timeout=15.0) as cliente:
+    # El servidor del SPE omite el intermedio de su cadena TLS: sin él, todos sus
+    # enlaces se darían por muertos y el boletín perdería las ofertas del SPE.
+    # Accept */*: se verifican páginas HTML, no una API JSON.
+    contexto = contexto_ssl([INTERMEDIO_SPE])
+    with crear_cliente(tiempo_limite=15.0, acepta="*/*", verificacion=contexto) as cliente:
         for evaluacion in evaluaciones:
             if _responde(cliente, str(evaluacion.oferta.url)):
                 vivas.append(evaluacion)
@@ -3250,12 +3257,17 @@ def _responde(cliente: httpx.Client, url: str) -> bool:
     return False
 ```
 
-- [ ] **Step 4: Ejecutar y verificar que pasa**
+- [ ] **Step 4: Hacer pública la constante del intermedio del SPE**
 
-Run: `uv run pytest tests/test_verificacion.py -v`
-Expected: PASS — 3 tests
+En `src/boletin_empleos/fuentes/spe.py` renombra `_INTERMEDIO_SPE` a `INTERMEDIO_SPE` en su
+definición y en su uso. Ningún otro cambio en ese archivo.
 
-- [ ] **Step 5: Formatear y commitear**
+- [ ] **Step 5: Ejecutar y verificar que pasa**
+
+Run: `uv run pytest tests/test_verificacion.py tests/test_fuente_spe.py -v`
+Expected: PASS — 3 tests de verificación y toda la suite del SPE en verde
+
+- [ ] **Step 6: Formatear y commitear**
 
 ```bash
 uv run ruff format . && uv run ruff check --fix .
