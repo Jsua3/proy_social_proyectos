@@ -152,3 +152,15 @@ def test_r2_3_sr_reemplaza_a_sr_punto_sin_perder_cobertura_ni_casar_en_sres():
     assert ok_sr is False
     assert ok_sr_punto is False
     assert ok_sres is True
+
+
+def test_r2_3_desarrollador_a_comercial_con_barra_tambien_queda_fuera():
+    """Encontrado en la corrida real de esta ronda (no solo en el registro del
+
+    primer boletín): "Desarrollador/a comercial" pasó pese al término
+    "desarrollador comercial" — la barra de género neutro ("/a") rompe la
+    coincidencia exacta de la frase, y el título por sí solo ya suma
+    relevancia vía el cargo "desarrollador". Se cubre con el propio título
+    real como término adicional en `excluidos`."""
+    cfg = cargar_config(RAIZ / "config.toml")
+    assert puntuar_relevancia(_oferta("Desarrollador/a comercial"), cfg.vocabulario) == 0.0

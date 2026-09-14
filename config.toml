@@ -52,6 +52,11 @@ excluidos = [
   # comerciales/de ventas o de mecanizado, no de software.
   "desarrollador comercial", "desarrollo comercial", "desarrollador de negocios",
   "business developer", "cnc",
+  # "desarrollador comercial" no cubre "Desarrollador/a comercial": la barra
+  # de género neutro rompe la coincidencia exacta de la frase, y el título
+  # solo ya suma relevancia por el cargo "desarrollador". Se vio de verdad en
+  # la corrida de vista previa de esta misma ronda (14/09/2026).
+  "desarrollador/a comercial",
 ]
 
 # Términos que NO admiten sufijo de flexión española, PESE a ser sustantivos de agente.
