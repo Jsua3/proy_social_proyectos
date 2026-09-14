@@ -57,9 +57,15 @@ class EnriquecedorAnthropic:
             return {}
 
     def editorial(self, evaluaciones: list[Evaluacion], conteos: dict[str, int]) -> str:
+        # R2-6: no se le pide al modelo que enmarque el boletín como "quincenal"
+        # ni de "últimas dos semanas" — la regla de vigencia deja entrar ofertas
+        # más viejas mientras no hayan vencido, y un modelo que respetara el
+        # encargo al pie de la letra redactaría una afirmación falsa.
         prompt = (
-            "Escribe un párrafo de apertura para un boletín quincenal de empleos dirigido a "
+            "Escribe un párrafo de apertura para un boletín de empleos dirigido a "
             "egresados de Ingeniería de Software de una universidad en Armenia, Quindío, Colombia. "
+            "Las vacantes están vigentes a la fecha de esta edición, no necesariamente publicadas "
+            "en los últimos días. "
             "Máximo 60 palabras, tono institucional y sobrio, sin saludos ni despedidas. "
             f"Esta edición trae {conteos.get('incluidas', 0)} vacantes. "
             "Títulos incluidos: "

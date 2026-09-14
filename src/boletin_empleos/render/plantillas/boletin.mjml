@@ -35,12 +35,15 @@
         <mj-section background-color="#ffffff" padding="4px 20px 12px 20px">
           <mj-column>
             <mj-text font-size="15px" font-weight="bold">
-              <a href="{{ ev.oferta.url }}" style="color:#0b3d63;text-decoration:none;">{{ ev.oferta.titulo }}</a>
+              <a href="{{ ev.oferta.url }}" target="_blank" rel="noopener noreferrer" style="color:#0b5fff;text-decoration:none;">{{ ev.oferta.titulo }}</a>
             </mj-text>
             <mj-text font-size="13px" color="#5a6570">
               {{ ev.oferta.empresa or "Empresa no identificada" }}{% if ev.oferta.ubicacion %} · {{ ev.oferta.ubicacion }}{% endif %}{% if ev.salario %} · {{ ev.salario }}{% endif %}{% if ev.oferta.fecha_publicacion %} · publicada {{ ev.oferta.fecha_publicacion }}{% endif %}
             </mj-text>
             {% if ev.resumen %}<mj-text font-size="13px">{{ ev.resumen }}</mj-text>{% endif %}
+            <mj-text font-size="13px" font-weight="bold">
+              <a href="{{ ev.oferta.url }}" target="_blank" rel="noopener noreferrer" style="color:#0b5fff;text-decoration:underline;">Ver oferta</a>
+            </mj-text>
           </mj-column>
         </mj-section>
         {% endfor %}
@@ -73,7 +76,7 @@
         <mj-text font-size="12px" color="#5a6570"><strong>Fuentes de esta edición</strong></mj-text>
         {% for f in fuentes_usadas %}
         <mj-text font-size="12px" color="#5a6570">
-          {{ f.atribucion }} <a href="{{ f.url_atribucion }}">{{ f.url_atribucion }}</a>
+          {{ f.atribucion }} <a href="{{ f.url_atribucion }}" target="_blank" rel="noopener noreferrer" style="color:#0b5fff;">{{ f.url_atribucion }}</a>
         </mj-text>
         {% endfor %}
         {% if fuentes_caidas %}

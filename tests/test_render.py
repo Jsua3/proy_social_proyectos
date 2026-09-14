@@ -1,5 +1,7 @@
 from datetime import UTC, date, datetime
 
+from selectolax.parser import HTMLParser
+
 from boletin_empleos.modelos import Decision, Evaluacion, Modalidad, MotivoDescarte, Oferta
 from boletin_empleos.render.renderizador import DatosBoletin, FuenteUsada, renderizar
 
@@ -202,3 +204,62 @@ def test_usa_el_resumen_cuando_existe():
 def test_boletin_sin_ofertas_sigue_siendo_html_valido():
     html = renderizar(_datos(incluidas=[]))
     assert "<html" in html.lower()
+
+
+# --- Ronda 2 — R2-7: enlaces visibles y abribles a cada oferta ---------------
+
+
+def _evaluacion_con_url(titulo: str, url: str) -> Evaluacion:
+    return Evaluacion(
+        oferta=Oferta(
+            id=f"x:{titulo}",
+            fuente="spe",
+            titulo=titulo,
+            modalidad=Modalidad.PRESENCIAL,
+            url=url,
+            descripcion="Descripción.",
+            recogida_en=datetime(2026, 9, 9, tzinfo=UTC),
+        ),
+        puntaje_relevancia=0.9,
+        puntaje_legitimidad=0.9,
+        decision=Decision.INCLUIR,
+    )
+
+
+def test_r2_7_cada_oferta_tiene_exactamente_un_ver_oferta_a_su_propia_url():
+    ev1 = _evaluacion_con_url("Dev Uno", "https://ejemplo.co/1")
+    ev2 = _evaluacion_con_url("Dev Dos", "https://ejemplo.co/2")
+    html = renderizar(_datos(incluidas=[ev1, ev2]))
+    arbol = HTMLParser(html)
+
+    enlaces_ver_oferta = [a for a in arbol.css("a") if a.text(strip=True) == "Ver oferta"]
+    assert len(enlaces_ver_oferta) == 2, "un 'Ver oferta' por cada una de las dos ofertas"
+    hrefs = {a.attributes.get("href") for a in enlaces_ver_oferta}
+    assert hrefs == {"https://ejemplo.co/1", "https://ejemplo.co/2"}
+
+
+def test_r2_7_todos_los_enlaces_abren_en_pestana_nueva_sin_opener():
+    html = renderizar(_datos())
+    arbol = HTMLParser(html)
+    enlaces = arbol.css("a")
+    assert enlaces, "debe haber al menos un enlace en el boletín"
+    for a in enlaces:
+        assert a.attributes.get("target") == "_blank", a.html
+        assert "noopener" in (a.attributes.get("rel") or ""), a.html
+
+
+def test_r2_7_la_url_del_spe_con_ampersand_en_la_query_sobrevive_intacta():
+    """Con el autoescape de la ronda 1, el `&` debe quedar como `&amp;` en el
+
+    atributo, pero seguir llevando exactamente a la misma URL."""
+    url_spe = (
+        "https://personas.serviciodeempleo.gov.co/detalle_oferta.aspx"
+        "?sede_id=1626535798&proceso_id=2&dep_id=63"
+    )
+    ev = _evaluacion_con_url("Dev SPE", url_spe)
+    html = renderizar(_datos(incluidas=[ev]))
+
+    assert "&amp;" in html, "el '&' de la query debe seguir escapado en el atributo"
+    arbol = HTMLParser(html)
+    enlace_titulo = arbol.css_first('a[href*="detalle_oferta.aspx"]')
+    assert enlace_titulo.attributes.get("href") == url_spe

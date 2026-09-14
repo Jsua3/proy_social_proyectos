@@ -47,3 +47,35 @@ def test_anthropic_cae_a_nulo_si_el_proveedor_falla(monkeypatch):
 
     assert e.resumir([_evaluacion()]) == {}
     assert e.editorial([_evaluacion()], {"incluidas": 1})
+
+
+def test_r2_6_el_editorial_fijo_no_afirma_que_son_de_las_ultimas_dos_semanas():
+    """R2-6: la regla de vigencia deja entrar ofertas publicadas hace más de dos
+
+    semanas (mientras no hayan vencido), así que el texto fijo no puede
+    afirmar esa ventana de tiempo."""
+    texto = EnriquecedorNulo().editorial([_evaluacion()], {"incluidas": 1})
+    assert "últimas dos semanas" not in texto
+    assert "quincena" not in texto.lower()
+    assert "vigentes a la fecha" in texto
+
+
+def test_r2_6_el_prompt_del_editorial_no_le_pide_al_modelo_que_mienta_sobre_la_ventana():
+    """El prompt tampoco debe insinuarle al modelo una ventana de dos semanas o
+
+    una quincena que la regla de vigencia no respeta."""
+    from boletin_empleos.enriquecimiento.anthropic import EnriquecedorAnthropic
+
+    capturado = {}
+
+    def capturar(prompt, max_tokens):
+        capturado["prompt"] = prompt
+        return "editorial generado"
+
+    e = EnriquecedorAnthropic(api_key="clave-falsa")
+    e._pedir = capturar
+    e.editorial([_evaluacion()], {"incluidas": 1})
+
+    assert "quincenal" not in capturado["prompt"].lower()
+    assert "últimas dos semanas" not in capturado["prompt"]
+    assert "quincena" not in capturado["prompt"].lower()
