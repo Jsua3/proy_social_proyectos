@@ -15,12 +15,17 @@ from boletin_empleos.modelos import Evaluacion, Modalidad, MotivoDescarte, Ofert
 
 _PLANTILLAS = Path(__file__).parent / "plantillas"
 
-# Solo estos motivos llegan al apéndice del boletín (spec §8.6).
-_MOTIVOS_VISIBLES = {
-    MotivoDescarte.LEGITIMIDAD,
-    MotivoDescarte.EXPERIENCIA,
-    MotivoDescarte.VIGENCIA,
-    MotivoDescarte.ENLACE_MUERTO,
+# Qué llega al apéndice del boletín y cómo (spec §8.6):
+#  - Legitimidad: con la señal que lo activó -> detalle por ítem.
+#  - Experiencia, vigencia y enlace muerto: en conteo agregado -> nunca el
+#    título ni las notas de la oferta, para no inundar el apéndice.
+#  - Relevancia y deduplicación: no llegan al apéndice (quedan en el registro).
+_MOTIVOS_DETALLE = {MotivoDescarte.LEGITIMIDAD}
+
+_ETIQUETAS_AGREGADAS = {
+    MotivoDescarte.EXPERIENCIA: "nivel de experiencia",
+    MotivoDescarte.VIGENCIA: "vigencia",
+    MotivoDescarte.ENLACE_MUERTO: "enlace muerto",
 }
 
 
@@ -43,7 +48,12 @@ class DatosBoletin(BaseModel):
 
 
 def renderizar(datos: DatosBoletin) -> str:
-    entorno = Environment(loader=_cargador())
+    # autoescape=True: los títulos, empresas, resúmenes y editorial pueden venir
+    # de terceros (fuentes externas) o de un LLM. Sin escapar, un '<'/'>' rompe
+    # el XML que MJML necesita parsear y aborta TODO el boletín; un '&' sin
+    # escapar deja el HTML final inválido. Esto también evita inyección de HTML
+    # en el correo institucional.
+    entorno = Environment(loader=_cargador(), autoescape=True)
     plantilla = entorno.get_template("boletin.mjml")
     return plantilla.render(
         numero_edicion=datos.numero_edicion,
@@ -51,12 +61,27 @@ def renderizar(datos: DatosBoletin) -> str:
         editorial=datos.editorial,
         conteos=datos.conteos,
         secciones=_agrupar(datos),
-        descartes_visibles=[
-            _con_extras(e, datos) for e in datos.descartadas if e.motivo in _MOTIVOS_VISIBLES
+        descartes_detalle=[
+            _con_extras(e, datos) for e in datos.descartadas if e.motivo in _MOTIVOS_DETALLE
         ],
+        descartes_agregados=_agregar_descartes(datos.descartadas),
         fuentes_usadas=datos.fuentes_usadas,
         fuentes_caidas=datos.fuentes_caidas,
     )
+
+
+def _agregar_descartes(descartadas: list[Evaluacion]) -> list[dict]:
+    """Conteo agregado por motivo (spec §8.6): nunca título ni notas por ítem."""
+    conteos_por_motivo: dict[MotivoDescarte, int] = {}
+    for evaluacion in descartadas:
+        if evaluacion.motivo in _ETIQUETAS_AGREGADAS:
+            conteos_por_motivo[evaluacion.motivo] = conteos_por_motivo.get(evaluacion.motivo, 0) + 1
+
+    return [
+        {"etiqueta": _ETIQUETAS_AGREGADAS[motivo], "conteo": conteos_por_motivo[motivo]}
+        for motivo in _ETIQUETAS_AGREGADAS
+        if motivo in conteos_por_motivo
+    ]
 
 
 def _cargador():

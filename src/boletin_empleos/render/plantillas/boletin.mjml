@@ -47,16 +47,21 @@
       {% endif %}
     {% endfor %}
 
-    {% if descartes_visibles %}
+    {% if descartes_detalle or descartes_agregados %}
     <mj-section background-color="#fbf7ec" padding="16px 20px">
       <mj-column>
         <mj-text font-size="14px" font-weight="bold">Apéndice — ofertas descartadas</mj-text>
         <mj-text font-size="12px" color="#5a6570">
           Se listan para que el filtro pueda auditarse. No se descartan en silencio.
         </mj-text>
-        {% for ev in descartes_visibles %}
+        {% for ev in descartes_detalle %}
         <mj-text font-size="12px" color="#5a6570">
           <strong>{{ ev.oferta.titulo }}</strong> — {{ ev.motivo }}: {{ ev.notas|join("; ") }}
+        </mj-text>
+        {% endfor %}
+        {% for agregado in descartes_agregados %}
+        <mj-text font-size="12px" color="#5a6570">
+          {{ agregado.conteo }} descartadas por {{ agregado.etiqueta }}.
         </mj-text>
         {% endfor %}
       </mj-column>
