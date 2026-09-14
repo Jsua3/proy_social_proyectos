@@ -77,3 +77,17 @@ def test_magneto_omite_la_ruta_con_parametros_sin_lanzar():
         rutas=["/co/trabajos/buscar?utm_source=x", "/co/trabajos/buscar"], pausa=0.0
     ).obtener()
     assert ofertas, "la ruta válida debe seguir aportando pese a la inválida"
+
+
+@respx.mock
+def test_magneto_limpia_el_codigo_interno_del_titulo():
+    """R2-5: la fixture real trae títulos con el código pegado al final, p. ej.
+
+    "Botones con curso ESCNNA 1626450926-40"."""
+    respx.get(url__startswith="https://www.magneto365.com/co/trabajos/").mock(
+        return_value=httpx.Response(200, text=FIXTURE)
+    )
+    ofertas = FuenteMagneto(rutas=["/co/trabajos/buscar"], pausa=0.0).obtener()
+    titulos = [o.titulo for o in ofertas]
+    assert "Botones con curso ESCNNA" in titulos
+    assert not any(t.endswith("1626450926-40") for t in titulos)

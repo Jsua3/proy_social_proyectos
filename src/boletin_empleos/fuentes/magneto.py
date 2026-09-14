@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 
 from selectolax.parser import HTMLParser
 
+from boletin_empleos.fuentes.comun import limpiar_titulo
 from boletin_empleos.http import crear_cliente, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
@@ -107,7 +108,7 @@ class FuenteMagneto:
                 yield Oferta(
                     id=f"magneto:{url.rstrip('/').rsplit('/', 1)[-1]}",
                     fuente=self.nombre,
-                    titulo=titulo.text(strip=True),
+                    titulo=limpiar_titulo(titulo.text(strip=True)),
                     empresa=_segmento(segmentos, _IDX_EMPRESA),
                     ubicacion=_segmento(segmentos, _IDX_UBICACION),
                     pais="CO",

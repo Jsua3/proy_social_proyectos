@@ -7,7 +7,13 @@ import httpx
 import pytest
 import respx
 
-from boletin_empleos.fuentes.spe import FuenteSPE, _a_modalidad, _rango_salarial
+from boletin_empleos.fuentes.spe import (
+    FuenteSPE,
+    _a_modalidad,
+    _meses_experiencia,
+    _rango_salarial,
+    _ubicacion,
+)
 from boletin_empleos.modelos import Modalidad
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "spe_pagina.json").read_text("utf-8"))
@@ -149,3 +155,83 @@ def test_spe_devuelve_vacio_si_el_cuerpo_no_es_json():
         return_value=httpx.Response(200, text="<html>Mantenimiento</html>")
     )
     assert FuenteSPE(consultas=[{"departamento": "Quindio"}]).obtener() == []
+
+
+# --- Ronda 2 -----------------------------------------------------------------
+
+
+@respx.mock
+def test_spe_repara_el_mojibake_del_titulo_antes_de_construir_la_oferta():
+    """R2-1: el SPE entrega UTF-8 mal leído como cp1252; los filtros deben ver
+
+    el texto ya reparado, no el roto — por eso se repara ANTES de armar la
+    Oferta, y por eso se prueba aquí y no solo en `reparar_texto` suelta.
+    """
+    fila = dict(FIXTURE["resultados"][0])
+    fila["TITULO_VACANTE"] = "Lider tÃ©cnico/a QA"
+    una_pagina = FIXTURE | {"resultados": [fila], "totalPages": 1, "currentPage": 1}
+    respx.get(url__startswith="https://www.buscadordeempleo.gov.co/backbue/v1").mock(
+        return_value=httpx.Response(200, json=una_pagina)
+    )
+    ofertas = FuenteSPE(consultas=[{"departamento": "Quindio"}]).obtener()
+    assert ofertas[0].titulo == "Lider técnico/a QA"
+
+
+@pytest.mark.parametrize(
+    ("valor", "esperado"),
+    [
+        (144, 12),
+        (216, 18),
+        (288, 24),
+        (720, 60),
+        (36, 36),
+        (120, 120),
+        (130, 130),
+        (None, None),
+        ("no es un número", None),
+    ],
+)
+def test_meses_experiencia_corrige_meses_por_12(valor, esperado):
+    """R2-2: algunas bolsas guardan MESES_EXPERIENCIA_CARGO como meses × 12.
+
+    Evidencia real (valor del campo ↔ lo que dice la descripción): 216↔"18
+    meses", 288↔"24 meses", 144↔"12 meses"; en cambio 36↔"3 años" y 12↔"un
+    año" sí vienen en meses reales, y 120 o menos se deja igual porque 72 o 96
+    podrían ser años reales sin forma de saberlo.
+    """
+    assert _meses_experiencia(valor) == esperado
+
+
+@pytest.mark.parametrize(
+    ("municipio", "departamento", "esperado"),
+    [
+        ("BOGOTÁ, D.C.", "BOGOTÁ, D.C.", "BOGOTÁ, D.C."),
+        (
+            "VACANTES PARA TODO EL TERRITORIO",
+            "VACANTES PARA TODO EL TERRITORIO",
+            "VACANTES PARA TODO EL TERRITORIO",
+        ),
+        ("DEPARTAMENTO CUNDINAMARCA", "CUNDINAMARCA", "DEPARTAMENTO CUNDINAMARCA"),
+        ("MEDELLÍN", "ANTIOQUIA", "MEDELLÍN, ANTIOQUIA"),
+        ("", "QUINDIO", "QUINDIO"),
+    ],
+)
+def test_ubicacion_no_duplica_el_departamento(municipio, departamento, esperado):
+    """R2-4: no se añade el departamento cuando ya está contenido en el
+
+    municipio, comparando sin mayúsculas ni tildes.
+    """
+    assert _ubicacion(municipio, departamento) == esperado
+
+
+@respx.mock
+def test_spe_limpia_el_codigo_interno_del_titulo():
+    """R2-5: algunas bolsas pegan su código de control al final del título."""
+    fila = dict(FIXTURE["resultados"][0])
+    fila["TITULO_VACANTE"] = "Desarrollador/a Java/PHP 1626256994-142"
+    una_pagina = FIXTURE | {"resultados": [fila], "totalPages": 1, "currentPage": 1}
+    respx.get(url__startswith="https://www.buscadordeempleo.gov.co/backbue/v1").mock(
+        return_value=httpx.Response(200, json=una_pagina)
+    )
+    ofertas = FuenteSPE(consultas=[{"departamento": "Quindio"}]).obtener()
+    assert ofertas[0].titulo == "Desarrollador/a Java/PHP"

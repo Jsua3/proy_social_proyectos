@@ -14,9 +14,10 @@ import re
 import time
 from datetime import UTC, datetime
 
-from boletin_empleos.fuentes.comun import fecha_iso
+from boletin_empleos.fuentes.comun import fecha_iso, limpiar_titulo, reparar_texto
 from boletin_empleos.http import contexto_ssl, crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
+from boletin_empleos.nucleo.relevancia import normalizar_texto
 
 _log = logging.getLogger(__name__)
 _BASE = "https://www.buscadordeempleo.gov.co/backbue/v1"
@@ -136,27 +137,32 @@ class FuenteSPE:
         try:
             codigo = str(bruto["CODIGO_VACANTE"])
             prestador, url = _prestador(bruto)
+            prestador = reparar_texto(prestador)
             if not url:
                 _log.debug("spe: vacante %s sin URL de detalle; se omite", codigo)
                 return None
 
             minimo, maximo = _rango_salarial(bruto.get("RANGO_SALARIAL"))
-            municipio = (bruto.get("MUNICIPIO") or "").strip()
-            departamento = (bruto.get("DEPARTAMENTO") or "").strip()
+            # Reparado ANTES de construir la Oferta: los filtros de relevancia y
+            # experiencia deben ver el texto ya legible, no el mojibake (R2-1).
+            municipio = reparar_texto((bruto.get("MUNICIPIO") or "").strip())
+            departamento = reparar_texto((bruto.get("DEPARTAMENTO") or "").strip())
+            titulo = limpiar_titulo(reparar_texto(bruto["TITULO_VACANTE"]))
+            descripcion = reparar_texto(bruto.get("DESCRIPCION_VACANTE", ""))
             return Oferta(
                 id=f"spe:{codigo}",
                 fuente=self.nombre,
-                titulo=bruto["TITULO_VACANTE"],
+                titulo=titulo,
                 empresa=prestador,
-                ubicacion=", ".join(p for p in (municipio, departamento) if p) or None,
+                ubicacion=_ubicacion(municipio, departamento),
                 pais="CO",
                 modalidad=_a_modalidad(bruto.get("TELETRABAJO")),
                 url=url,
-                descripcion=bruto.get("DESCRIPCION_VACANTE", ""),
+                descripcion=descripcion,
                 recogida_en=ahora,
                 fecha_publicacion=fecha_iso(bruto.get("FECHA_PUBLICACION")),
                 fecha_vencimiento=fecha_iso(bruto.get("FECHA_VENCIMIENTO")),
-                meses_experiencia=_entero(bruto.get("MESES_EXPERIENCIA_CARGO")),
+                meses_experiencia=_meses_experiencia(bruto.get("MESES_EXPERIENCIA_CARGO")),
                 es_practica=_a_booleano(bruto.get("PLAZA_PRACTICA")),
                 salario_min=minimo,
                 salario_max=maximo,
@@ -165,6 +171,21 @@ class FuenteSPE:
         except (KeyError, ValueError, TypeError, AttributeError, IndexError) as e:
             _log.warning("spe: oferta descartada por dato inválido: %s", e)
             return None
+
+
+def _ubicacion(municipio: str, departamento: str) -> str | None:
+    """Combina municipio y departamento sin duplicar (R2-4).
+
+    Evidencia real: `BOGOTÁ, D.C., BOGOTÁ, D.C.`, `DEPARTAMENTO CUNDINAMARCA,
+    CUNDINAMARCA`. El SPE a veces repite el departamento dentro del propio
+    municipio; se compara sin mayúsculas ni tildes con `normalizar_texto` del
+    núcleo (un adaptador puede depender del núcleo, nunca al revés).
+    """
+    if not municipio:
+        return departamento or None
+    if not departamento or normalizar_texto(departamento) in normalizar_texto(municipio):
+        return municipio
+    return f"{municipio}, {departamento}"
 
 
 def _prestador(bruto: dict) -> tuple[str | None, str | None]:
@@ -209,6 +230,26 @@ def _entero(valor) -> int | None:
         return int(valor)
     except (TypeError, ValueError):
         return None
+
+
+# Algunas bolsas del SPE guardan MESES_EXPERIENCIA_CARGO como meses × 12.
+# Evidencia real (valor del campo ↔ lo que dice la descripción de la vacante):
+#   216 ↔ "18 meses de experiencia en cargos afines"
+#   288 ↔ "24 meses de experiencia en cargos afines"
+#   144 ↔ "12 meses de experiencia en cargos afines"
+# mientras que 36 ↔ "3 años de experiencia" y 12 ↔ "un mínimo de un año" SÍ
+# vienen en meses reales. En el primer boletín real, 29 de 60 descartes por
+# experiencia tenían un valor > 120 y divisible entre 12 (16 de ellos "exige
+# 144 meses"), incluida una vacante junior. Un valor de 120 o menos se deja
+# igual: 72 o 96 podrían ser años reales y no hay forma de saberlo.
+_UMBRAL_MESES_X_12 = 120
+
+
+def _meses_experiencia(valor) -> int | None:
+    entero = _entero(valor)
+    if entero is not None and entero > _UMBRAL_MESES_X_12 and entero % 12 == 0:
+        return entero // 12
+    return entero
 
 
 _NUMERO = re.compile(r"\$?\s*([\d.]{4,})")
