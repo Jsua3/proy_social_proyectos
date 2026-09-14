@@ -4239,11 +4239,16 @@ solo debe recibir boletines. Queda documentado en el README (Task 16).
 ```python
 # tests/test_cli.py
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
 from boletin_empleos.cli import main
+from boletin_empleos.entrega.consola import EntregaConsola
 from boletin_empleos.modelos import Modalidad, Oferta
+
+# Ruta absoluta: los tests no dependen del directorio desde el que se lance pytest.
+CONFIG = Path(__file__).resolve().parents[1] / "config.toml"
 
 
 class FuenteFalsa:
@@ -4259,10 +4264,12 @@ class FuenteFalsa:
         return self._ofertas
 
 
-def _oferta(id_, titulo="Desarrollador Backend Python"):
+def _oferta(id_, fuente="falsa", titulo="Desarrollador Backend Python"):
+    # `fuente` debe coincidir con el nombre de la FuenteFalsa que la aporta: el pipeline
+    # busca la confianza base por ese nombre y, si no la encuentra, usa un valor por defecto.
     return Oferta(
         id=id_,
-        fuente="falsa",
+        fuente=fuente,
         titulo=titulo,
         empresa="Acme S.A.S.",
         ubicacion="Armenia, Quindío",
@@ -4275,55 +4282,95 @@ def _oferta(id_, titulo="Desarrollador Backend Python"):
 
 
 @pytest.fixture
-def sin_verificacion(monkeypatch):
+def aislado(monkeypatch):
+    """Sin red y sin LLM: ni verificación de enlaces ni llamadas a la API de Anthropic.
+
+    Sin el `delenv`, quien corra la suite con ANTHROPIC_API_KEY en su entorno haría
+    llamadas reales, y pagadas, en cada ejecución de los tests.
+    """
     monkeypatch.setattr("boletin_empleos.cli.filtrar_enlaces_vivos", lambda evs: (evs, []))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
 
-def test_dry_run_escribe_el_boletin_sin_enviar(tmp_path, monkeypatch, sin_verificacion):
+def _correr(tmp_path, *extra):
+    return main(
+        [
+            *extra,
+            "--config",
+            str(CONFIG),
+            "--salida",
+            str(tmp_path / "salida"),
+            "--historial",
+            str(tmp_path / "h.json"),
+        ]
+    )
+
+
+def test_dry_run_escribe_el_boletin_sin_enviar(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
         lambda: [FuenteFalsa("falsa", [_oferta("f:1"), _oferta("f:2")])],
     )
-    salida = tmp_path / "salida"
-    codigo = main(["--dry-run", "--salida", str(salida), "--historial", str(tmp_path / "h.json")])
-
-    assert codigo == 0
-    assert list(salida.glob("*.html")), "el dry-run debe dejar el HTML en disco"
+    assert _correr(tmp_path, "--dry-run") == 0
+    archivos = list((tmp_path / "salida").glob("*.html"))
+    assert len(archivos) == 1, "el dry-run deja exactamente un HTML en disco"
 
 
-def test_una_fuente_caida_no_tumba_el_boletin(tmp_path, monkeypatch, sin_verificacion):
+def test_una_fuente_caida_no_tumba_el_boletin(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("viva", [_oferta("v:1")]), FuenteFalsa("caida", [])],
+        lambda: [FuenteFalsa("viva", [_oferta("v:1", fuente="viva")]), FuenteFalsa("caida", [])],
     )
-    salida = tmp_path / "salida"
-    codigo = main(["--dry-run", "--salida", str(salida), "--historial", str(tmp_path / "h.json")])
-
-    assert codigo == 0
-    html = next(salida.glob("*.html")).read_text("utf-8")
+    assert _correr(tmp_path, "--dry-run") == 0
+    html = next((tmp_path / "salida").glob("*.html")).read_text("utf-8")
     assert "caida" in html and "no respondió" in html
 
 
-def test_sin_ninguna_oferta_no_se_envia_boletin(tmp_path, monkeypatch, sin_verificacion):
+def test_sin_ninguna_oferta_no_se_envia_boletin(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr("boletin_empleos.cli.construir_fuentes", lambda: [FuenteFalsa("caida", [])])
-    salida = tmp_path / "salida"
-    codigo = main(["--dry-run", "--salida", str(salida), "--historial", str(tmp_path / "h.json")])
-
-    assert codigo == 2, "sin fuentes vivas no se envía boletín vacío"
-    assert not list(salida.glob("*.html"))
+    assert _correr(tmp_path, "--dry-run") == 2, "sin fuentes vivas no se envía boletín vacío"
+    assert not list((tmp_path / "salida").glob("*.html"))
 
 
-def test_el_historial_evita_repetir_ofertas(tmp_path, monkeypatch, sin_verificacion):
+def test_el_historial_evita_repetir_ofertas(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
         lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
     )
-    salida = tmp_path / "salida"
-    historial = tmp_path / "h.json"
-
-    assert main(["--dry-run", "--salida", str(salida), "--historial", str(historial)]) == 0
+    # Envío real simulado: la entrega escribe en disco en vez de usar SMTP.
+    monkeypatch.setattr(
+        "boletin_empleos.cli._crear_entrega",
+        lambda args, cfg: EntregaConsola(tmp_path / "enviados"),
+    )
+    assert _correr(tmp_path) == 0
     # Segunda corrida: la misma oferta ya fue enviada, no quedan nuevas.
-    assert main(["--dry-run", "--salida", str(salida), "--historial", str(historial)]) == 3
+    assert _correr(tmp_path) == 3
+
+
+def test_dry_run_no_consume_las_ofertas_de_la_edicion_real(tmp_path, monkeypatch, aislado):
+    """Un dry-run es una vista previa.
+
+    Si registrara el historial, las ofertas que la coordinación revisó en la prueba
+    nunca llegarían en la edición real (spec §15, criterio 4).
+    """
+    monkeypatch.setattr(
+        "boletin_empleos.cli.construir_fuentes",
+        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+    )
+    assert _correr(tmp_path, "--dry-run") == 0
+    assert _correr(tmp_path, "--dry-run") == 0, "la segunda vista previa ve la misma oferta"
+    assert not (tmp_path / "h.json").exists()
+
+
+def test_sin_credenciales_smtp_no_envia_ni_registra(tmp_path, monkeypatch, aislado):
+    monkeypatch.setattr(
+        "boletin_empleos.cli.construir_fuentes",
+        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+    )
+    for variable in ("SMTP_HOST", "SMTP_USUARIO", "SMTP_CLAVE"):
+        monkeypatch.delenv(variable, raising=False)
+    assert _correr(tmp_path) == 1
+    assert not (tmp_path / "h.json").exists()
 ```
 
 - [ ] **Step 2: Ejecutar y verificar que falla**
@@ -4342,6 +4389,8 @@ Códigos de salida:
   1  error de configuración o de entrega
   2  ninguna fuente respondió — no se envía boletín vacío (spec §12)
   3  no hay ofertas nuevas para esta edición
+
+`--dry-run` es una vista previa: deja el HTML en --salida y NO modifica el historial.
 """
 
 import argparse
@@ -4351,6 +4400,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from boletin_empleos.almacenamiento import HistorialIlegible
 from boletin_empleos.almacenamiento.json_repo import HistorialJSON
 from boletin_empleos.config import cargar_config
 from boletin_empleos.enriquecimiento import crear_enriquecedor
@@ -4392,7 +4442,13 @@ def main(argv: list[str] | None = None) -> int:
 
 def ejecutar(args) -> int:
     cfg = cargar_config(args.config)
-    historial = HistorialJSON(args.historial)
+    hoy = date.today()
+    try:
+        historial = HistorialJSON(args.historial)
+    except HistorialIlegible as e:
+        # Nunca se sigue con un historial vacío: reenviaría todo lo ya enviado.
+        _log.error("%s", e)
+        return 1
 
     ofertas = []
     fuentes_usadas: list[FuenteUsada] = []
@@ -4420,7 +4476,7 @@ def ejecutar(args) -> int:
         _log.error("ninguna fuente respondió; no se envía un boletín vacío")
         return 2
 
-    resultado = evaluar(ofertas, historial.ids_enviados(), cfg, confianza_por_fuente, date.today())
+    resultado = evaluar(ofertas, historial.ids_enviados(), cfg, confianza_por_fuente, hoy)
     vivas, muertas = filtrar_enlaces_vivos(resultado.incluidas)
     _log.info("conteos: %s | enlaces muertos: %d", resultado.conteos, len(muertas))
 
@@ -4431,7 +4487,7 @@ def ejecutar(args) -> int:
     enriquecedor = crear_enriquecedor(os.environ.get("ANTHROPIC_API_KEY"))
     datos = DatosBoletin(
         numero_edicion=historial.numero_edicion(),
-        fecha=date.today(),
+        fecha=hoy,
         editorial=enriquecedor.editorial(vivas, resultado.conteos),
         incluidas=vivas,
         descartadas=[*resultado.descartadas, *muertas],
@@ -4448,9 +4504,16 @@ def ejecutar(args) -> int:
     if not entrega.enviar(cfg.asunto, html, cfg.destinatarios):
         return 1
 
+    if args.dry_run:
+        # EntregaConsola ya dejó el HTML en --salida. El historial NO se toca: si se
+        # registrara, las ofertas vistas en la prueba se darían por enviadas y la
+        # directora nunca las recibiría en la edición real.
+        _log.info("dry-run: vista previa con %d vacantes; historial sin cambios", len(vivas))
+        return 0
+
     args.salida.mkdir(parents=True, exist_ok=True)
-    (args.salida / f"{date.today().isoformat()}.html").write_text(html, encoding="utf-8")
-    historial.registrar({e.oferta.id for e in vivas}, date.today())
+    (args.salida / f"{hoy.isoformat()}.html").write_text(html, encoding="utf-8")
+    historial.registrar({e.oferta.id for e in vivas}, hoy)
     _log.info("edición %d completada con %d vacantes", datos.numero_edicion, len(vivas))
     return 0
 
@@ -4480,7 +4543,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_cli.py -v`
-Expected: PASS — 4 tests
+Expected: PASS — 6 tests
 
 - [ ] **Step 5: Ejecutar la suite completa**
 
@@ -4613,8 +4676,18 @@ jobs:
             uv run boletin --verboso
           fi
 
+      - name: Publicar la vista previa
+        # En un dry-run el HTML se descarga desde la página de la ejecución en Actions.
+        if: success() && inputs.dry_run == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: vista-previa-boletin
+          path: datos/ediciones/
+
       - name: Guardar el historial y la edición
-        if: success()
+        # Nunca tras un dry-run: no se envió nada, así que no hay nada que registrar.
+        # En el cron, `inputs.dry_run` es nulo y la condición se cumple.
+        if: success() && inputs.dry_run != true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -4642,7 +4715,7 @@ Corporación Universitaria Empresarial Alexander von Humboldt · Armenia, Quind�
 
 ```bash
 uv sync
-uv run boletin --dry-run     # genera sin enviar, deja el HTML en datos/ediciones/
+uv run boletin --dry-run     # vista previa: deja el HTML en datos/ediciones/ y no toca el historial
 uv run boletin               # genera y envía
 uv run pytest                # pruebas
 ```
