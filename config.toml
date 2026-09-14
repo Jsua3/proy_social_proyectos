@@ -47,6 +47,11 @@ excluidos = [
   "vendedor", "asesor comercial", "call center", "domiciliario",
   "auxiliar de bodega", "mesero", "vigilante", "conductor",
   "operario",
+  # Del primer boletín real (14/09/2026): coincidían con "desarrollador" o
+  # "ingeniero de sistemas" en el título o la descripción, pero son roles
+  # comerciales/de ventas o de mecanizado, no de software.
+  "desarrollador comercial", "desarrollo comercial", "desarrollador de negocios",
+  "business developer", "cnc",
 ]
 
 # Términos que NO admiten sufijo de flexión española, PESE a ser sustantivos de agente.
@@ -78,13 +83,19 @@ sin_flexion = []
 # "Desarrollador - Sede Principal" como si fuera senior. Se usan en su lugar las
 # formas inglesas inequívocas, que son las que aparecen en las fuentes remotas.
 terminos_excluidos = [
-  "senior", "sr.", "lead", "lider tecnico", "líder técnico", "arquitecto jefe",
+  "senior", "sr", "lead", "lider tecnico", "líder técnico", "arquitecto jefe",
   "jefe de", "gerente", "director", "head of", "staff engineer",
   "principal engineer", "principal software", "principal developer",
   "coordinador de desarrollo",
   # Plurales ingleses: la regla morfológica es española y no flexiona `-er`,
   # porque ahí viven `docker`, `tester` y `flutter`. Se cubren como dato.
   "staff engineers", "principal engineers", "principal developers",
+  # Del primer boletín real (14/09/2026): "sr." pasó a "sr" (la frontera de
+  # palabra ya cubre "Sr" y "Sr." sin el punto, y sin casar dentro de
+  # "Sres."); "principal data" y "experto" se añaden porque "principal
+  # engineer/software/developer" no cubría "Principal Data Engineer" ni
+  # "Desarrollador Experto de Sistemas de Información".
+  "principal data", "experto",
 ]
 
 [legitimidad]
