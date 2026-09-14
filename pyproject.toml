@@ -9,6 +9,7 @@ dependencies = [
     "selectolax>=0.3.21",
     "jinja2-mjml>=0.1",
     "certifi>=2024.2.2",
+    "anthropic>=1.5.0",
 ]
 
 # jinja2-mjml solo existe en 0.1.0 en PyPI y fija mjml-python<0.2.0, que no
