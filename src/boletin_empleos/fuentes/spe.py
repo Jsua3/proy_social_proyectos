@@ -27,7 +27,7 @@ _VERSION_ESPERADA = "2.4.0"
 # ese intermedio, así que sin esto httpx falla con "unable to get local issuer
 # certificate" y el adaptador devuelve cero ofertas en silencio.
 # Verificado el 9/09/2026. La verificación TLS permanece activa.
-_INTERMEDIO_SPE = "geotrust-tls-rsa-ca-g1.pem"
+INTERMEDIO_SPE = "geotrust-tls-rsa-ca-g1.pem"
 
 # Estrategia de descarga medida en el spec §7: cubre remoto nacional,
 # el mercado local del Quindío, y ocupaciones de software a nivel nacional.
@@ -67,7 +67,7 @@ class FuenteSPE:
         vistos: set[str] = set()
         ofertas: list[Oferta] = []
 
-        with crear_cliente(verificacion=contexto_ssl([_INTERMEDIO_SPE])) as cliente:
+        with crear_cliente(verificacion=contexto_ssl([INTERMEDIO_SPE])) as cliente:
             self._verificar_version(cliente)
             for consulta in self._consultas:
                 for bruto in self._recorrer(cliente, consulta):
