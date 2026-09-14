@@ -131,3 +131,143 @@ def test_sin_credenciales_smtp_no_envia_ni_registra(tmp_path, monkeypatch, aisla
         monkeypatch.delenv(variable, raising=False)
     assert _correr(tmp_path) == 1
     assert not (tmp_path / "h.json").exists()
+
+
+def test_sin_credenciales_smtp_no_consulta_fuentes_ni_ia(tmp_path, monkeypatch, aislado):
+    """T15-1: la entrega se valida antes de recolectar — nunca se paga por nada."""
+    llamadas = []
+
+    def _fuentes_que_registran_la_llamada():
+        llamadas.append(True)
+        return [FuenteFalsa("falsa", [_oferta("f:1")])]
+
+    monkeypatch.setattr("boletin_empleos.cli.construir_fuentes", _fuentes_que_registran_la_llamada)
+    for variable in ("SMTP_HOST", "SMTP_USUARIO", "SMTP_CLAVE"):
+        monkeypatch.delenv(variable, raising=False)
+    assert _correr(tmp_path) == 1
+    assert not llamadas, "sin credenciales SMTP no se debe consultar ninguna fuente"
+    assert not (tmp_path / "h.json").exists()
+
+
+def test_config_inexistente_devuelve_1(tmp_path):
+    assert (
+        main(
+            [
+                "--config",
+                str(tmp_path / "no-existe.toml"),
+                "--dry-run",
+                "--salida",
+                str(tmp_path / "salida"),
+                "--historial",
+                str(tmp_path / "h.json"),
+            ]
+        )
+        == 1
+    )
+
+
+def test_config_con_toml_invalido_devuelve_1(tmp_path):
+    config_mala = tmp_path / "config.toml"
+    config_mala.write_text("esto no es toml válido [[[\n", encoding="utf-8")
+    assert (
+        main(
+            [
+                "--config",
+                str(config_mala),
+                "--dry-run",
+                "--salida",
+                str(tmp_path / "salida"),
+                "--historial",
+                str(tmp_path / "h.json"),
+            ]
+        )
+        == 1
+    )
+
+
+def test_config_con_campo_obligatorio_ausente_devuelve_1(tmp_path):
+    config_incompleta = tmp_path / "config.toml"
+    config_incompleta.write_text("", encoding="utf-8")  # faltan todos los campos obligatorios
+    assert (
+        main(
+            [
+                "--config",
+                str(config_incompleta),
+                "--dry-run",
+                "--salida",
+                str(tmp_path / "salida"),
+                "--historial",
+                str(tmp_path / "h.json"),
+            ]
+        )
+        == 1
+    )
+
+
+def _renderizar_que_falla(datos):
+    raise ValueError("fallo simulado de render")
+
+
+def test_fallo_de_render_devuelve_1_y_no_registra_historial(tmp_path, monkeypatch, aislado):
+    monkeypatch.setattr(
+        "boletin_empleos.cli.construir_fuentes",
+        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+    )
+    # Entrega real simulada (sin SMTP) para que el fallo bajo prueba sea el del render.
+    monkeypatch.setattr(
+        "boletin_empleos.cli._crear_entrega",
+        lambda args, cfg: EntregaConsola(tmp_path / "enviados"),
+    )
+    monkeypatch.setattr("boletin_empleos.cli.renderizar", _renderizar_que_falla)
+    assert _correr(tmp_path) == 1
+    assert not (tmp_path / "h.json").exists()
+
+
+def test_historial_corrupto_devuelve_1_y_no_consulta_fuentes(tmp_path, monkeypatch, aislado):
+    historial_malo = tmp_path / "h.json"
+    historial_malo.write_text("esto no es json {", encoding="utf-8")
+    llamadas = []
+
+    def _fuentes_que_registran_la_llamada():
+        llamadas.append(True)
+        return []
+
+    monkeypatch.setattr("boletin_empleos.cli.construir_fuentes", _fuentes_que_registran_la_llamada)
+    assert (
+        main(
+            [
+                "--dry-run",
+                "--config",
+                str(CONFIG),
+                "--salida",
+                str(tmp_path / "salida"),
+                "--historial",
+                str(historial_malo),
+            ]
+        )
+        == 1
+    )
+    assert not llamadas, "un historial ilegible no debe llegar a consultar fuentes"
+
+
+class _EntregaQueFalla:
+    def enviar(self, asunto, html, destinatarios):
+        return False
+
+
+def test_entrega_que_falla_en_modo_real_devuelve_1_y_no_registra_historial(
+    tmp_path, monkeypatch, aislado
+):
+    monkeypatch.setattr(
+        "boletin_empleos.cli.construir_fuentes",
+        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+    )
+    monkeypatch.setattr("boletin_empleos.cli._crear_entrega", lambda args, cfg: _EntregaQueFalla())
+    assert _correr(tmp_path) == 1
+    assert not (tmp_path / "h.json").exists()
+
+
+def test_argumento_invalido_sale_con_codigo_1():
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--flag-que-no-existe"])
+    assert excinfo.value.code == 1

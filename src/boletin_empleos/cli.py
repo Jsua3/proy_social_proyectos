@@ -2,7 +2,7 @@
 
 Códigos de salida:
   0  boletín generado y entregado
-  1  error de configuración o de entrega
+  1  error de configuración, de argumentos, de render o de entrega
   2  ninguna fuente respondió — no se envía boletín vacío (spec §12)
   3  no hay ofertas nuevas para esta edición
 
@@ -13,15 +13,19 @@ import argparse
 import logging
 import os
 import sys
+import tomllib
 from datetime import date
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from boletin_empleos.almacenamiento import HistorialIlegible
 from boletin_empleos.almacenamiento.json_repo import HistorialJSON
-from boletin_empleos.config import cargar_config
+from boletin_empleos.config import Config, cargar_config
 from boletin_empleos.enriquecimiento import crear_enriquecedor
 from boletin_empleos.entrega.consola import EntregaConsola
 from boletin_empleos.entrega.smtp import EntregaSMTP
+from boletin_empleos.fuentes.base import FuenteEmpleo
 from boletin_empleos.fuentes.magneto import FuenteMagneto
 from boletin_empleos.fuentes.remoteok import FuenteRemoteOK
 from boletin_empleos.fuentes.remotive import FuenteRemotive
@@ -33,12 +37,25 @@ from boletin_empleos.verificacion import filtrar_enlaces_vivos
 _log = logging.getLogger("boletin")
 
 
-def construir_fuentes():
+def construir_fuentes() -> list[FuenteEmpleo]:
     return [FuenteSPE(), FuenteMagneto(), FuenteRemotive(), FuenteRemoteOK()]
 
 
-def _argumentos(argv):
-    p = argparse.ArgumentParser(prog="boletin", description="Boletín quincenal de empleos")
+class _ArgumentParser(argparse.ArgumentParser):
+    """Un typo en un flag no debe salir con el mismo código que una degradación real.
+
+    argparse sale con 2 por defecto ante argumentos inválidos, el mismo código
+    que usa esta app para "ninguna fuente respondió" (spec §12). Un error de
+    invocación del workflow y una caída real de fuentes deben distinguirse.
+    """
+
+    def error(self, message: str) -> None:
+        self.print_usage(sys.stderr)
+        self.exit(1, f"{self.prog}: error: {message}\n")
+
+
+def _argumentos(argv: list[str] | None) -> argparse.Namespace:
+    p = _ArgumentParser(prog="boletin", description="Boletín quincenal de empleos")
     p.add_argument("--dry-run", action="store_true", help="renderiza y guarda en disco sin enviar")
     p.add_argument("--config", type=Path, default=Path("config.toml"))
     p.add_argument("--historial", type=Path, default=Path("datos/historial.json"))
@@ -56,9 +73,15 @@ def main(argv: list[str] | None = None) -> int:
     return ejecutar(args)
 
 
-def ejecutar(args) -> int:
-    cfg = cargar_config(args.config)
-    hoy = date.today()
+def ejecutar(args: argparse.Namespace) -> int:
+    try:
+        cfg = cargar_config(args.config)
+    except (OSError, tomllib.TOMLDecodeError, ValidationError) as e:
+        # Archivo ausente, TOML ilegible o campo obligatorio faltante: se nombra
+        # el archivo para que quien lea el log sepa cuál revisar.
+        _log.error("no se pudo cargar la configuración desde %s: %s", args.config, e)
+        return 1
+
     try:
         historial = HistorialJSON(args.historial)
     except HistorialIlegible as e:
@@ -66,6 +89,15 @@ def ejecutar(args) -> int:
         _log.error("%s", e)
         return 1
 
+    # La entrega se valida antes de tocar cualquier fuente, enlace o IA: un
+    # secreto SMTP roto en el workflow debe fallar rápido y sin costo, no
+    # después de recolectar, verificar enlaces y pagar por enriquecer una
+    # edición que de todos modos no se va a poder enviar.
+    entrega = _crear_entrega(args, cfg)
+    if entrega is None:
+        return 1
+
+    hoy = date.today()
     ofertas = []
     fuentes_usadas: list[FuenteUsada] = []
     fuentes_caidas: list[str] = []
@@ -112,11 +144,12 @@ def ejecutar(args) -> int:
         fuentes_usadas=fuentes_usadas,
         fuentes_caidas=fuentes_caidas,
     )
-    html = renderizar(datos)
-
-    entrega = _crear_entrega(args, cfg)
-    if entrega is None:
+    try:
+        html = renderizar(datos)
+    except Exception as e:  # render no documenta un contrato "nunca lanza"
+        _log.error("fallo al renderizar el boletín: %s", e)
         return 1
+
     if not entrega.enviar(cfg.asunto, html, cfg.destinatarios):
         return 1
 
@@ -134,7 +167,7 @@ def ejecutar(args) -> int:
     return 0
 
 
-def _crear_entrega(args, cfg):
+def _crear_entrega(args: argparse.Namespace, cfg: Config) -> EntregaConsola | EntregaSMTP | None:
     if args.dry_run:
         return EntregaConsola(args.salida)
 
