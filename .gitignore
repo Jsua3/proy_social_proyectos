@@ -37,3 +37,6 @@ scratch/
 # Worktrees aislados y espacio de trabajo de los agentes
 .worktrees/
 .superpowers/
+
+# Salida de las corridas en vista previa
+datos/vista-previa/
