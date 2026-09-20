@@ -20,7 +20,9 @@
   `BoletinEmpleosCUE/1.0 (+https://github.com/Jsua3/proy_social_proyectos; coorproyeccioning@cue.edu.co)`
 - **Nunca commitear secretos.** Credenciales solo por variables de entorno.
 - **Los descartes por relevancia y las deduplicaciones NO van al apéndice del boletín**, solo al registro de ejecución (spec §8.6).
-- **Formato:** `ruff format` y `ruff check` deben pasar antes de cada commit.
+- **Formato:** `ruff format .` y `ruff check .` deben pasar antes de cada commit.
+  `docs/` está excluido en `pyproject.toml`: Ruff formatea el Python embebido en Markdown y
+  reescribiría este mismo plan. Si ves `docs/` modificado tras formatear, la exclusión se perdió.
 
 ---
 
@@ -48,9 +50,16 @@ requires-python = ">=3.13"
 dependencies = [
     "pydantic>=2.9",
     "httpx>=0.27",
+    "certifi>=2024.8.30",
     "selectolax>=0.3.21",
-    "jinja2-mjml>=0.3",
+    "jinja2-mjml>=0.1",
 ]
+
+# jinja2-mjml solo existe en 0.1.0 en PyPI y fija mjml-python<0.2.0, que no
+# publica wheels para cp313. mjml-python 1.2.4+ sí los trae (cp313/abi3) y la
+# API que usamos es compatible. Verificado el 9/09/2026.
+[tool.uv]
+override-dependencies = ["mjml-python>=1.2.4"]
 
 [project.scripts]
 boletin = "boletin_empleos.cli:main"
@@ -68,6 +77,10 @@ packages = ["src/boletin_empleos"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# Ruff formatea los bloques de Python embebidos en Markdown. Sin esta exclusión,
+# `ruff format .` reescribe el propio plan y el spec en cada tarea, metiendo
+# documentos del controlador dentro de los commits de los implementadores.
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -198,7 +211,7 @@ class Decision(StrEnum):
 
 class MotivoDescarte(StrEnum):
     RELEVANCIA = "relevancia"
-    SENIORITY = "seniority"
+    EXPERIENCIA = "experiencia"
     VIGENCIA = "vigencia"
     ENLACE_MUERTO = "enlace_muerto"
     LEGITIMIDAD = "legitimidad"
@@ -266,6 +279,7 @@ git commit -m "feat: esqueleto del proyecto y modelos de dominio"
 **Files:**
 - Create: `src/boletin_empleos/fuentes/__init__.py`
 - Create: `src/boletin_empleos/fuentes/base.py`
+- Create: `src/boletin_empleos/fuentes/comun.py`
 - Create: `src/boletin_empleos/fuentes/remotive.py`
 - Create: `src/boletin_empleos/http.py`
 - Create: `tests/fixtures/remotive.json`
@@ -273,7 +287,8 @@ git commit -m "feat: esqueleto del proyecto y modelos de dominio"
 
 **Interfaces:**
 - Consumes: `Oferta`, `Modalidad` (Task 1)
-- Produces: `FuenteEmpleo` (Protocol), `USER_AGENT`, `crear_cliente()`, `FuenteRemotive`
+- Produces: `FuenteEmpleo` (Protocol), `USER_AGENT`, `crear_cliente()`, `json_de()`,
+  `reintentar()`, `fecha_iso()` (en `fuentes/comun.py`), `FuenteRemotive`
 
 - [ ] **Step 1: Descargar la fixture real**
 
@@ -329,9 +344,20 @@ def test_remotive_declara_su_permiso_y_atribucion():
 
 
 @respx.mock
-def test_remotive_devuelve_vacio_si_la_api_falla():
+def test_remotive_devuelve_vacio_si_la_api_falla(monkeypatch):
+    # Sin esto, los 3 reintentos duermen 1 s + 2 s reales y la suite se arrastra.
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
     respx.get(url__startswith="https://remotive.com/api/remote-jobs").mock(
         return_value=httpx.Response(503)
+    )
+    assert FuenteRemotive().obtener() == []
+
+
+@respx.mock
+def test_remotive_devuelve_vacio_si_el_cuerpo_no_es_json():
+    """Un 200 con HTML — mantenimiento, interstitial de WAF — no debe lanzar excepción."""
+    respx.get(url__startswith="https://remotive.com/api/remote-jobs").mock(
+        return_value=httpx.Response(200, text="<html>Mantenimiento</html>")
     )
     assert FuenteRemotive().obtener() == []
 ```
@@ -347,11 +373,15 @@ Expected: FAIL con `ModuleNotFoundError: No module named 'boletin_empleos.fuente
 # src/boletin_empleos/http.py
 """Cliente HTTP compartido. Identifica al agente y reintenta con retroceso."""
 
+import json
 import logging
+import ssl
 import time
-from collections.abc import Callable
-from typing import TypeVar
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Any
 
+import certifi
 import httpx
 
 USER_AGENT = (
@@ -360,19 +390,75 @@ USER_AGENT = (
 )
 
 _log = logging.getLogger(__name__)
-T = TypeVar("T")
 
 
-def crear_cliente(timeout: float = 30.0) -> httpx.Client:
+CERTIFICADOS = Path(__file__).parent / "certificados"
+
+
+def contexto_ssl(intermedios: Sequence[str] = ()) -> ssl.SSLContext:
+    """Contexto TLS de verificación completa, más los intermedios que se le indiquen.
+
+    Algunos servidores envían solo su certificado de hoja y omiten los intermedios
+    de la cadena. Un navegador lo salva descargándolos sobre la marcha (AIA fetching);
+    OpenSSL no lo hace, así que la verificación falla con "unable to get local issuer
+    certificate" y el adaptador devuelve cero ofertas sin explicar por qué.
+
+    Aportar el intermedio que falta **no baja la seguridad**: la verificación del
+    certificado y del nombre de host siguen activas. Lo que NO haríamos nunca es
+    `verify=False`.
+    """
+    contexto = ssl.create_default_context(cafile=certifi.where())
+    for nombre in intermedios:
+        contexto.load_verify_locations(cadata=(CERTIFICADOS / nombre).read_text("ascii"))
+    return contexto
+
+
+def crear_cliente(
+    tiempo_limite: float = 30.0,
+    acepta: str = "application/json",
+    verificacion: ssl.SSLContext | bool = True,
+) -> httpx.Client:
+    """`acepta` se parametriza porque no todas las fuentes sirven JSON: Magneto sirve HTML
+    y un servidor estricto respondería 406 ante un Accept que no puede satisfacer.
+
+    `verificacion` permite pasar un contexto TLS propio para las fuentes cuyo servidor
+    tiene la cadena de certificados incompleta (ver `contexto_ssl`).
+    """
     return httpx.Client(
-        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-        timeout=timeout,
+        headers={"User-Agent": USER_AGENT, "Accept": acepta},
+        timeout=tiempo_limite,
         follow_redirects=True,
+        verify=verificacion,
     )
 
 
-def reintentar(operacion: Callable[[], T], intentos: int = 3, espera_base: float = 1.0) -> T | None:
-    """Ejecuta `operacion` con retroceso exponencial. Devuelve None si todo falla."""
+def json_de(respuesta: httpx.Response) -> Any | None:
+    """Interpreta el cuerpo como JSON. Devuelve None si no lo es.
+
+    Un HTTP 200 no garantiza JSON: una página de mantenimiento, un interstitial de
+    WAF o una respuesta truncada devuelven 200 con HTML. `respuesta.json()` lanzaría
+    `JSONDecodeError` fuera del alcance de `reintentar` (que solo atrapa errores de
+    transporte) y rompería el contrato de que un adaptador nunca lanza excepción.
+    """
+    try:
+        return respuesta.json()
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        _log.error(
+            "respuesta de %s no es JSON válido (%s); se descarta la fuente en esta edición",
+            respuesta.request.url if respuesta.request else "?",
+            e,
+        )
+        return None
+
+
+def reintentar[T](
+    operacion: Callable[[], T], intentos: int = 3, espera_base: float = 1.0
+) -> T | None:
+    """Ejecuta `operacion` con retroceso exponencial. Devuelve None si todo falla.
+
+    Genéricos con sintaxis PEP 695 (`def reintentar[T]`), no `TypeVar`: con
+    `target-version = "py313"` la regla UP047 de ruff rechaza la forma antigua.
+    """
     for intento in range(intentos):
         try:
             return operacion()
@@ -419,6 +505,28 @@ from boletin_empleos.fuentes.base import FuenteEmpleo
 __all__ = ["FuenteEmpleo"]
 ```
 
+```python
+# src/boletin_empleos/fuentes/comun.py
+"""Utilidades compartidas por los adaptadores de fuente.
+
+Existe para que la misma lógica no viva copiada en cada adaptador: las cuatro
+fuentes entregan fechas en variantes de ISO 8601 y todas necesitan interpretarlas
+igual.
+"""
+
+from datetime import date, datetime
+
+
+def fecha_iso(valor: str | None) -> date | None:
+    """Interpreta una fecha ISO 8601, con o sin sufijo `Z`. None si no se puede."""
+    if not valor:
+        return None
+    try:
+        return datetime.fromisoformat(str(valor).replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+```
+
 - [ ] **Step 6: Implementar el adaptador Remotive**
 
 ```python
@@ -433,7 +541,8 @@ terminate your API access." Las ofertas vienen con 24 h de retraso por diseño s
 import logging
 from datetime import UTC, datetime
 
-from boletin_empleos.http import crear_cliente, reintentar
+from boletin_empleos.fuentes.comun import fecha_iso
+from boletin_empleos.http import crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
 _log = logging.getLogger(__name__)
@@ -462,9 +571,14 @@ class FuenteRemotive:
             _log.error("remotive: no se pudo obtener la lista de ofertas")
             return []
 
+        datos = json_de(respuesta)
+        if not isinstance(datos, dict):
+            _log.error("remotive: la respuesta no tiene la forma esperada")
+            return []
+
         ahora = datetime.now(UTC)
         ofertas: list[Oferta] = []
-        for bruto in respuesta.json().get("jobs", []):
+        for bruto in datos.get("jobs", []):
             oferta = self._normalizar(bruto, ahora)
             if oferta is not None:
                 ofertas.append(oferta)
@@ -483,26 +597,17 @@ class FuenteRemotive:
                 url=bruto["url"],
                 descripcion=bruto.get("description", ""),
                 recogida_en=ahora,
-                fecha_publicacion=_fecha(bruto.get("publication_date")),
+                fecha_publicacion=fecha_iso(bruto.get("publication_date")),
             )
         except (KeyError, ValueError) as e:
             _log.warning("remotive: oferta descartada por dato inválido: %s", e)
             return None
-
-
-def _fecha(valor: str | None):
-    if not valor:
-        return None
-    try:
-        return datetime.fromisoformat(valor.replace("Z", "+00:00")).date()
-    except ValueError:
-        return None
 ```
 
 - [ ] **Step 7: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_remotive.py -v`
-Expected: PASS — 3 tests
+Expected: PASS — 4 tests
 
 - [ ] **Step 8: Formatear y commitear**
 
@@ -522,7 +627,7 @@ git commit -m "feat: puerto de fuentes y adaptador Remotive"
 - Create: `tests/test_fuente_remoteok.py`
 
 **Interfaces:**
-- Consumes: `Oferta`, `Modalidad`, `crear_cliente`, `reintentar`
+- Consumes: `Oferta`, `Modalidad`, `crear_cliente`, `json_de`, `reintentar`, `fecha_iso`
 - Produces: `FuenteRemoteOK`
 
 **Particularidad verificada:** el primer elemento del arreglo que devuelve RemoteOK **no es una oferta**, es su aviso legal (`{"legal": "..."}`). Hay que descartarlo.
@@ -530,16 +635,25 @@ git commit -m "feat: puerto de fuentes y adaptador Remotive"
 - [ ] **Step 1: Descargar la fixture real**
 
 ```bash
+mkdir -p tests/fixtures
 curl -s -A "BoletinEmpleosCUE/1.0" "https://remoteok.com/api" \
-  -o /tmp/remoteok_full.json
-python -c "
-import json
-d=json.load(open('/tmp/remoteok_full.json',encoding='utf-8'))
+  -o tests/fixtures/.remoteok_completo.json
+uv run python -c "
+import json, pathlib
+crudo = pathlib.Path('tests/fixtures/.remoteok_completo.json')
+d = json.loads(crudo.read_text(encoding='utf-8'))
 print('primer elemento (aviso legal):', list(d[0]))
-json.dump(d[:6], open('tests/fixtures/remoteok.json','w',encoding='utf-8'), ensure_ascii=False)
 print('campos de oferta:', list(d[1]))
+pathlib.Path('tests/fixtures/remoteok.json').write_text(
+    json.dumps(d[:6], ensure_ascii=False), encoding='utf-8')
+crudo.unlink()
 "
 ```
+
+**Por qué el archivo temporal va dentro del repositorio y no en `/tmp`:** en este entorno Windows,
+`curl` corre bajo MSYS y resuelve `/tmp` a una ruta distinta de la que ve Python, que lo interpreta
+como `C:\tmp` literal. Escribir en `/tmp` y leerlo desde Python falla con `FileNotFoundError`.
+El archivo intermedio se borra al final; `tests/fixtures/remoteok.json` es el que queda.
 
 - [ ] **Step 2: Escribir el test que falla**
 
@@ -575,8 +689,19 @@ def test_remoteok_declara_su_permiso_y_atribucion():
 
 
 @respx.mock
-def test_remoteok_devuelve_vacio_si_la_api_falla():
+def test_remoteok_devuelve_vacio_si_la_api_falla(monkeypatch):
+    # Sin esto, los 3 reintentos duermen 1 s + 2 s reales y la suite se arrastra.
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
     respx.get("https://remoteok.com/api").mock(return_value=httpx.Response(500))
+    assert FuenteRemoteOK().obtener() == []
+
+
+@respx.mock
+def test_remoteok_devuelve_vacio_si_el_cuerpo_no_es_json():
+    """Un 200 con HTML — mantenimiento, interstitial de WAF — no debe lanzar excepción."""
+    respx.get("https://remoteok.com/api").mock(
+        return_value=httpx.Response(200, text="<html>Mantenimiento</html>")
+    )
     assert FuenteRemoteOK().obtener() == []
 ```
 
@@ -601,7 +726,8 @@ El primer elemento del arreglo es el aviso legal, no una oferta.
 import logging
 from datetime import UTC, datetime
 
-from boletin_empleos.http import crear_cliente, reintentar
+from boletin_empleos.fuentes.comun import fecha_iso
+from boletin_empleos.http import crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
 _log = logging.getLogger(__name__)
@@ -622,7 +748,11 @@ class FuenteRemoteOK:
             _log.error("remoteok: no se pudo obtener la lista de ofertas")
             return []
 
-        datos = respuesta.json()
+        datos = json_de(respuesta)
+        if not isinstance(datos, list):
+            _log.error("remoteok: la respuesta no tiene la forma esperada")
+            return []
+
         ahora = datetime.now(UTC)
         ofertas: list[Oferta] = []
         for bruto in datos:
@@ -646,7 +776,7 @@ class FuenteRemoteOK:
                 url=bruto["url"],
                 descripcion=bruto.get("description", ""),
                 recogida_en=ahora,
-                fecha_publicacion=_fecha(bruto.get("date")),
+                fecha_publicacion=fecha_iso(bruto.get("date")),
                 salario_min=bruto.get("salary_min") or None,
                 salario_max=bruto.get("salary_max") or None,
                 moneda="USD" if bruto.get("salary_min") else None,
@@ -654,21 +784,12 @@ class FuenteRemoteOK:
         except (KeyError, ValueError) as e:
             _log.warning("remoteok: oferta descartada por dato inválido: %s", e)
             return None
-
-
-def _fecha(valor: str | None):
-    if not valor:
-        return None
-    try:
-        return datetime.fromisoformat(valor.replace("Z", "+00:00")).date()
-    except ValueError:
-        return None
 ```
 
 - [ ] **Step 5: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_remoteok.py -v`
-Expected: PASS — 3 tests
+Expected: PASS — 4 tests
 
 - [ ] **Step 6: Formatear y commitear**
 
@@ -684,11 +805,13 @@ git commit -m "feat: adaptador RemoteOK"
 
 **Files:**
 - Create: `src/boletin_empleos/fuentes/spe.py`
+- Create: `src/boletin_empleos/certificados/geotrust-tls-rsa-ca-g1.pem`
+- Modify: `src/boletin_empleos/http.py` (añade `contexto_ssl` y el parámetro `verificacion`)
 - Create: `tests/fixtures/spe_pagina.json`
 - Create: `tests/test_fuente_spe.py`
 
 **Interfaces:**
-- Consumes: `Oferta`, `Modalidad`, `crear_cliente`, `reintentar`
+- Consumes: `Oferta`, `Modalidad`, `crear_cliente`, `json_de`, `reintentar`, `fecha_iso`
 - Produces: `FuenteSPE`
 
 **Contrato verificado el 9/09/2026** (spec §7): base `https://www.buscadordeempleo.gov.co/backbue/v1`,
@@ -698,6 +821,33 @@ endpoint `GET /vacantes/resultados?page=N&<filtros>`, 50 registros por página, 
 
 **Consultas de la estrategia** (spec §7): `teletrabajo=1` (39 págs) · `departamento=Quindio` (31 págs) ·
 `cargo` con lista curada (~15 págs). Total ≈ 85 peticiones.
+
+- [ ] **Step 0: Descargar el certificado intermedio que el servidor omite**
+
+```bash
+mkdir -p src/boletin_empleos/certificados
+curl -s "http://cacerts.geotrust.com/GeoTrustTLSRSACAG1.crt" -o /c/temp-geotrust.der
+openssl x509 -inform DER -in /c/temp-geotrust.der \
+  -out src/boletin_empleos/certificados/geotrust-tls-rsa-ca-g1.pem -outform PEM
+rm -f /c/temp-geotrust.der
+openssl x509 -in src/boletin_empleos/certificados/geotrust-tls-rsa-ca-g1.pem -noout -subject -issuer
+```
+
+Expected: `subject=... CN=GeoTrust TLS RSA CA G1` y `issuer=... CN=DigiCert Global Root G2`.
+
+La URL sale del propio certificado del SPE (extensión *Authority Information Access*), así que es
+la fuente oficial del intermedio, no un tercero.
+
+**Por qué hace falta:** el servidor de `buscadordeempleo.gov.co` envía **solo su certificado de
+hoja** y omite el intermedio. `certifi` trae la raíz pero no el intermedio, así que `httpx` falla
+con `unable to get local issuer certificate`. Como el contrato dice que un adaptador nunca lanza,
+el fallo se traga y el SPE aporta **cero ofertas sin que nadie entienda por qué**. Comprobado en
+vivo el 9/09/2026. `curl` en Windows no falla porque descarga el intermedio sobre la marcha;
+OpenSSL —y por tanto Python, y por tanto GitHub Actions— no hace eso.
+
+**El certificado de hoja del SPE expira el 7 de enero de 2027.** Cuando lo renueven, si cambian de
+emisor habrá que reemplazar este intermedio. El síntoma será el mismo: el SPE aportando cero
+ofertas. El `WARNING` de `contexto_ssl` y el fallo declarado en el pie del boletín son la señal.
 
 - [ ] **Step 1: Descargar la fixture real**
 
@@ -719,9 +869,11 @@ print('campos:', list(d['resultados'][0]))
 ```python
 # tests/test_fuente_spe.py
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import pytest
 import respx
 
 from boletin_empleos.fuentes.spe import FuenteSPE, _a_modalidad, _rango_salarial
@@ -743,7 +895,8 @@ def test_spe_pagina_y_normaliza():
     assert o.fuente == "spe"
     assert o.id.startswith("spe:")
     assert o.pais == "CO"
-    assert str(o.url).startswith("https://buscadordeempleo.gov.co")
+    assert str(o.url).startswith("http"), "la URL sale de DETALLES_PRESTADOR[0].URL_DETALLE_VACANTE"
+    assert o.empresa, "el nombre del prestador viene en DETALLES_PRESTADOR[0].NOMBRE_PRESTADOR"
 
 
 @respx.mock
@@ -751,7 +904,10 @@ def test_spe_recorre_todas_las_paginas():
     llamadas = {"n": 0}
 
     def responder(request):
-        llamadas["n"] += 1
+        # Solo se cuentan las páginas de resultados: /version también casa con este mock
+        # y contarlo daría 4 en vez de 3.
+        if "vacantes/resultados" in request.url.path:
+            llamadas["n"] += 1
         pagina = int(request.url.params.get("page", 1))
         return httpx.Response(200, json=FIXTURE | {"totalPages": 3, "currentPage": pagina})
 
@@ -760,6 +916,31 @@ def test_spe_recorre_todas_las_paginas():
     )
     FuenteSPE(consultas=[{"departamento": "Quindio"}], pausa=0.0).obtener()
     assert llamadas["n"] == 3
+
+
+def test_spe_extrae_url_y_prestador_de_la_lista():
+    """DETALLES_PRESTADOR es una LISTA de dicts, no una cadena.
+
+    Tratarla como cadena lanzaría AttributeError con cada registro del SPE.
+    """
+    from boletin_empleos.fuentes.spe import _prestador
+
+    fila = FIXTURE["resultados"][0]
+    nombre, url = _prestador(fila)
+    assert nombre and url and url.startswith("http")
+
+    assert _prestador({}) == (None, None)
+    assert _prestador({"DETALLES_PRESTADOR": []}) == (None, None)
+    assert _prestador({"DETALLES_PRESTADOR": "texto plano"}) == (None, None)
+
+
+def test_spe_omite_vacantes_sin_url_de_detalle():
+    from boletin_empleos.fuentes.spe import FuenteSPE
+
+    fuente = FuenteSPE()
+    sin_url = dict(FIXTURE["resultados"][0])
+    sin_url["DETALLES_PRESTADOR"] = [{"NOMBRE_PRESTADOR": "X", "URL_DETALLE_VACANTE": ""}]
+    assert fuente._normalizar(sin_url, datetime(2026, 9, 9, tzinfo=UTC)) is None
 
 
 def test_spe_traduce_teletrabajo_a_modalidad():
@@ -776,6 +957,44 @@ def test_spe_interpreta_el_rango_salarial():
     assert _rango_salarial(None) == (None, None)
 
 
+@respx.mock
+@pytest.mark.parametrize(
+    ("cuerpo", "descripcion"),
+    [
+        ({"totalPages": "muchas", "resultados": []}, "totalPages como cadena"),
+        ({"totalPages": 1, "resultados": None}, "resultados nulo"),
+        ({"totalPages": 1, "resultados": {"a": 1}}, "resultados como objeto"),
+        ({"totalPages": 1, "resultados": ["texto plano"]}, "elementos no-dict"),
+        ({"totalPages": -5, "resultados": []}, "totalPages negativo"),
+    ],
+)
+def test_spe_no_lanza_con_json_valido_pero_mal_tipado(cuerpo, descripcion):
+    """Un JSON válido no garantiza tipos correctos. El adaptador nunca debe lanzar."""
+    respx.get(url__startswith="https://www.buscadordeempleo.gov.co/backbue/v1").mock(
+        return_value=httpx.Response(200, json=cuerpo)
+    )
+    assert FuenteSPE(consultas=[{"departamento": "Quindio"}], pausa=0.0).obtener() == [], (
+        descripcion
+    )
+
+
+def test_contexto_ssl_carga_el_intermedio_sin_bajar_la_verificacion():
+    """El servidor del SPE omite su intermedio; lo aportamos sin desactivar nada."""
+    import ssl
+
+    from boletin_empleos.http import contexto_ssl
+
+    contexto = contexto_ssl(["geotrust-tls-rsa-ca-g1.pem"])
+    assert contexto.verify_mode is ssl.CERT_REQUIRED, "la verificación debe seguir activa"
+    assert contexto.check_hostname is True, "la comprobación de host debe seguir activa"
+    # El intermedio quedó realmente cargado en el almacén del contexto.
+    sujetos = [
+        dict(x for parte in cert["subject"] for x in parte).get("commonName", "")
+        for cert in contexto.get_ca_certs()
+    ]
+    assert "GeoTrust TLS RSA CA G1" in sujetos
+
+
 def test_spe_declara_su_permiso_y_atribucion():
     f = FuenteSPE()
     assert f.nombre == "spe"
@@ -784,9 +1003,19 @@ def test_spe_declara_su_permiso_y_atribucion():
 
 
 @respx.mock
-def test_spe_devuelve_vacio_si_la_api_falla():
+def test_spe_devuelve_vacio_si_la_api_falla(monkeypatch):
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
     respx.get(url__startswith="https://www.buscadordeempleo.gov.co/backbue/v1").mock(
         return_value=httpx.Response(502)
+    )
+    assert FuenteSPE(consultas=[{"departamento": "Quindio"}]).obtener() == []
+
+
+@respx.mock
+def test_spe_devuelve_vacio_si_el_cuerpo_no_es_json():
+    """Un 200 con HTML — mantenimiento, interstitial de WAF — no debe lanzar excepción."""
+    respx.get(url__startswith="https://www.buscadordeempleo.gov.co/backbue/v1").mock(
+        return_value=httpx.Response(200, text="<html>Mantenimiento</html>")
     )
     assert FuenteSPE(consultas=[{"departamento": "Quindio"}]).obtener() == []
 ```
@@ -813,14 +1042,22 @@ detectar cambios de contrato.
 import logging
 import re
 import time
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
-from boletin_empleos.http import crear_cliente, reintentar
+from boletin_empleos.fuentes.comun import fecha_iso
+from boletin_empleos.http import contexto_ssl, crear_cliente, json_de, reintentar
 from boletin_empleos.modelos import Modalidad, Oferta
 
 _log = logging.getLogger(__name__)
 _BASE = "https://www.buscadordeempleo.gov.co/backbue/v1"
 _VERSION_ESPERADA = "2.4.0"
+
+# El servidor del SPE envía solo su certificado de hoja y omite el intermedio
+# GeoTrust TLS RSA CA G1. certifi trae la raíz (DigiCert Global Root G2) pero no
+# ese intermedio, así que sin esto httpx falla con "unable to get local issuer
+# certificate" y el adaptador devuelve cero ofertas en silencio.
+# Verificado el 9/09/2026. La verificación TLS permanece activa.
+_INTERMEDIO_SPE = "geotrust-tls-rsa-ca-g1.pem"
 
 # Estrategia de descarga medida en el spec §7: cubre remoto nacional,
 # el mercado local del Quindío, y ocupaciones de software a nivel nacional.
@@ -860,7 +1097,7 @@ class FuenteSPE:
         vistos: set[str] = set()
         ofertas: list[Oferta] = []
 
-        with crear_cliente() as cliente:
+        with crear_cliente(verificacion=contexto_ssl([_INTERMEDIO_SPE])) as cliente:
             self._verificar_version(cliente)
             for consulta in self._consultas:
                 for bruto in self._recorrer(cliente, consulta):
@@ -877,8 +1114,11 @@ class FuenteSPE:
         respuesta = reintentar(lambda: cliente.get(f"{_BASE}/version").raise_for_status())
         if respuesta is None:
             return
-        version = respuesta.json().get("backVersion")
-        if version != _VERSION_ESPERADA:
+        datos = json_de(respuesta)
+        if not isinstance(datos, dict):
+            return
+        version = datos.get("backVersion")
+        if version != _VERSION_ESPERADA:  # noqa: SIM102 — el log necesita ambos valores
             _log.warning(
                 "spe: la API cambió de versión (esperada %s, encontrada %s). "
                 "Revisar el contrato del adaptador.",
@@ -901,9 +1141,23 @@ class FuenteSPE:
             if respuesta is None:
                 _log.error("spe: falló la consulta %s en la página %d", consulta, pagina)
                 return
-            datos = respuesta.json()
-            total_paginas = datos.get("totalPages", 1)
-            yield from datos.get("resultados", [])
+            datos = json_de(respuesta)
+            if not isinstance(datos, dict):
+                _log.error("spe: respuesta sin la forma esperada en %s p%d", consulta, pagina)
+                return
+
+            # Un JSON válido no garantiza tipos correctos. Sin estas comprobaciones,
+            # `totalPages` como cadena, `resultados: null` o `resultados` como objeto
+            # propagan TypeError/AttributeError fuera de obtener(), rompiendo el
+            # contrato de que un adaptador nunca lanza.
+            total = datos.get("totalPages", 1)
+            total_paginas = total if isinstance(total, int) and total > 0 else 1
+
+            resultados = datos.get("resultados")
+            if not isinstance(resultados, list):
+                _log.error("spe: 'resultados' no es una lista en %s p%d", consulta, pagina)
+                return
+            yield from (fila for fila in resultados if isinstance(fila, dict))
             pagina += 1
             if self._pausa:
                 time.sleep(self._pausa)
@@ -911,6 +1165,11 @@ class FuenteSPE:
     def _normalizar(self, bruto: dict, ahora: datetime) -> Oferta | None:
         try:
             codigo = str(bruto["CODIGO_VACANTE"])
+            prestador, url = _prestador(bruto)
+            if not url:
+                _log.debug("spe: vacante %s sin URL de detalle; se omite", codigo)
+                return None
+
             minimo, maximo = _rango_salarial(bruto.get("RANGO_SALARIAL"))
             municipio = (bruto.get("MUNICIPIO") or "").strip()
             departamento = (bruto.get("DEPARTAMENTO") or "").strip()
@@ -918,24 +1177,48 @@ class FuenteSPE:
                 id=f"spe:{codigo}",
                 fuente=self.nombre,
                 titulo=bruto["TITULO_VACANTE"],
-                empresa=(bruto.get("DETALLES_PRESTADOR") or "").strip() or None,
+                empresa=prestador,
                 ubicacion=", ".join(p for p in (municipio, departamento) if p) or None,
                 pais="CO",
                 modalidad=_a_modalidad(bruto.get("TELETRABAJO")),
-                url=f"https://buscadordeempleo.gov.co/vacante/{codigo}",
+                url=url,
                 descripcion=bruto.get("DESCRIPCION_VACANTE", ""),
                 recogida_en=ahora,
-                fecha_publicacion=_fecha(bruto.get("FECHA_PUBLICACION")),
-                fecha_vencimiento=_fecha(bruto.get("FECHA_VENCIMIENTO")),
+                fecha_publicacion=fecha_iso(bruto.get("FECHA_PUBLICACION")),
+                fecha_vencimiento=fecha_iso(bruto.get("FECHA_VENCIMIENTO")),
                 meses_experiencia=_entero(bruto.get("MESES_EXPERIENCIA_CARGO")),
                 es_practica=_a_booleano(bruto.get("PLAZA_PRACTICA")),
                 salario_min=minimo,
                 salario_max=maximo,
                 moneda="COP" if minimo or maximo else None,
             )
-        except (KeyError, ValueError) as e:
+        except (KeyError, ValueError, TypeError, AttributeError, IndexError) as e:
             _log.warning("spe: oferta descartada por dato inválido: %s", e)
             return None
+
+
+def _prestador(bruto: dict) -> tuple[str | None, str | None]:
+    """Extrae (nombre de la bolsa, URL de la vacante) de `DETALLES_PRESTADOR`.
+
+    `DETALLES_PRESTADOR` es una LISTA de diccionarios, no una cadena. Verificado el
+    9/09/2026: las 50 filas de una página traen exactamente un prestador, y las 50
+    traen `URL_DETALLE_VACANTE`.
+
+    El SPE no expone el empleador real: `NOMBRE_PRESTADOR` es la bolsa de empleo
+    autorizada que publicó la vacante (Magneto, Comfenalco, Computrabajo…). Se usa
+    igualmente como `empresa` porque es una entidad real, registrada ante el
+    Ministerio, y porque dejarlo en None penalizaría sistemáticamente a la fuente
+    más confiable del sistema en el filtro de legitimidad.
+    """
+    detalles = bruto.get("DETALLES_PRESTADOR")
+    if not isinstance(detalles, list) or not detalles:
+        return (None, None)
+    primero = detalles[0]
+    if not isinstance(primero, dict):
+        return (None, None)
+    nombre = (primero.get("NOMBRE_PRESTADOR") or "").strip() or None
+    url = (primero.get("URL_DETALLE_VACANTE") or "").strip() or None
+    return (nombre, url)
 
 
 _VERDADEROS = {"1", "si", "sí", "true", "s", "y"}
@@ -958,21 +1241,14 @@ def _entero(valor) -> int | None:
         return None
 
 
-def _fecha(valor) -> date | None:
-    if not valor:
-        return None
-    texto = str(valor).replace("Z", "+00:00")
-    try:
-        return datetime.fromisoformat(texto).date()
-    except ValueError:
-        return None
-
-
 _NUMERO = re.compile(r"\$?\s*([\d.]{4,})")
 
 
 def _rango_salarial(texto: str | None) -> tuple[int | None, int | None]:
-    """Interpreta los rangos del SPE: '$1.000.001 - $1.500.000', 'Mayor de $15.000.001', 'A Convenir'."""
+    """Interpreta los rangos del SPE.
+
+    Formatos reales: '$1.000.001 - $1.500.000', 'Mayor de $15.000.001', 'A Convenir'.
+    """
     if not texto:
         return (None, None)
     numeros = [int(n.replace(".", "")) for n in _NUMERO.findall(texto)]
@@ -986,7 +1262,7 @@ def _rango_salarial(texto: str | None) -> tuple[int | None, int | None]:
 - [ ] **Step 5: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_spe.py -v`
-Expected: PASS — 6 tests
+Expected: PASS — 15 tests
 
 - [ ] **Step 6: Formatear y commitear**
 
@@ -1007,7 +1283,7 @@ git commit -m "feat: adaptador del Servicio Público de Empleo"
 
 **Interfaces:**
 - Consumes: `Oferta`, `Modalidad`, `crear_cliente`, `reintentar`
-- Produces: `FuenteMagneto`
+- Produces: `FuenteMagneto` (Magneto sirve HTML, no usa `json_de`)
 
 **Base de permiso:** Magneto publica `llms.txt` dirigido explícitamente a asistentes de IA, con URLs
 canónicas y la instrucción *"Evitar URLs con parámetros"*. Su `robots.txt` confirma `Disallow: /*?`.
@@ -1017,21 +1293,29 @@ canónicas y la instrucción *"Evitar URLs con parámetros"*. Su `robots.txt` co
 
 ```bash
 curl -s -A "BoletinEmpleosCUE/1.0 (+https://github.com/Jsua3/proy_social_proyectos; coorproyeccioning@cue.edu.co)" \
-  "https://www.magneto365.com/co/trabajos/ofertas-empleo-trabajo-remoto" \
+  "https://www.magneto365.com/co/trabajos/buscar" \
   -o tests/fixtures/magneto_listado.html
-uv run python -c "
+uv run python -c $'
 from selectolax.parser import HTMLParser
-h = HTMLParser(open('tests/fixtures/magneto_listado.html',encoding='utf-8').read())
-enlaces = [a.attributes.get('href','') for a in h.css('a') if '/trabajos/' in (a.attributes.get('href') or '')]
-print('enlaces a vacantes:', len(enlaces))
-for e in enlaces[:10]: print('  ', e)
-"
+h = HTMLParser(open("tests/fixtures/magneto_listado.html",encoding="utf-8").read())
+tarjetas = [a for a in h.css("article") if a.css_first("a[href*=\\"/co/empleos/\\"]")]
+print("tarjetas de vacante:", len(tarjetas))
+for c in tarjetas[:3]: print("  ", c.css_first("h2").text(strip=True)[:60])
+'
 ```
 
-**Nota para el implementador:** el selector CSS exacto depende del marcado que devuelva Magneto hoy.
-Inspecciona la fixture descargada y ajusta `_SEL_TARJETA`, `_SEL_TITULO` y `_SEL_EMPRESA` en el paso 4
-a lo que realmente exista. El test se escribe **contra la fixture**, así que fallará de forma clara si
-los selectores no coinciden.
+Expected: ~20 tarjetas, cada una con su título.
+
+**Estructura verificada el 9/09/2026 — no hace falta investigarla.** Las vacantes de Magneto viven
+en `/co/empleos/<slug>`, **no** en `/co/trabajos/` (esa es la ruta del listado, no de la vacante).
+Un filtro por `/trabajos/` descartaría el 100 % de las ofertas.
+
+Cada tarjeta es un `<article>` que contiene un enlace a `/co/empleos/` y un `<h2>` con el título:
+21 de 21 tarjetas cumplen ambas. El texto de la tarjeta viene segmentado de forma estable como
+`título | empresa | tipo de contrato | salario | ubicación | [urgencia]`.
+
+**No uses las clases CSS de Magneto** (`mg_job_card_desktop_magneto-ui-card-jobs_13c81`): llevan
+hash de CSS-modules y cambian en cada despliegue suyo.
 
 - [ ] **Step 2: Escribir el test que falla**
 
@@ -1052,14 +1336,31 @@ def test_magneto_extrae_ofertas_del_listado():
     respx.get(url__startswith="https://www.magneto365.com/co/trabajos/").mock(
         return_value=httpx.Response(200, text=FIXTURE)
     )
-    ofertas = FuenteMagneto(rutas=["/co/trabajos/ofertas-empleo-trabajo-remoto"]).obtener()
+    ofertas = FuenteMagneto(rutas=["/co/trabajos/buscar"], pausa=0.0).obtener()
 
-    assert ofertas, "la fixture debe producir al menos una oferta; revisa los selectores"
+    assert len(ofertas) >= 15, "la fixture real trae ~20 tarjetas; menos indica selectores rotos"
     o = ofertas[0]
     assert o.fuente == "magneto"
     assert o.pais == "CO"
     assert o.titulo.strip()
-    assert str(o.url).startswith("https://www.magneto365.com")
+    assert str(o.url).startswith("https://www.magneto365.com/co/empleos/")
+    assert o.empresa, "la empresa sale del segundo segmento del texto de la tarjeta"
+
+
+@respx.mock
+def test_magneto_una_ruta_caida_no_tumba_las_demas(monkeypatch):
+    """La ruta de trabajo remoto devuelve HTTP 500 desde el servidor de Magneto."""
+    # `pausa=0.0` solo elimina la espera ENTRE rutas; el retroceso de `reintentar`
+    # es aparte y sin este mock cuesta 3 s reales.
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
+    respx.get("https://www.magneto365.com/co/trabajos/rota").mock(
+        return_value=httpx.Response(500)
+    )
+    respx.get("https://www.magneto365.com/co/trabajos/buscar").mock(
+        return_value=httpx.Response(200, text=FIXTURE)
+    )
+    ofertas = FuenteMagneto(rutas=["/co/trabajos/rota", "/co/trabajos/buscar"], pausa=0.0).obtener()
+    assert ofertas, "una ruta caída no debe impedir que las demás aporten"
 
 
 @respx.mock
@@ -1068,7 +1369,7 @@ def test_magneto_nunca_pide_urls_con_parametros():
     ruta = respx.get(url__startswith="https://www.magneto365.com/co/trabajos/").mock(
         return_value=httpx.Response(200, text=FIXTURE)
     )
-    FuenteMagneto(rutas=["/co/trabajos/ofertas-empleo-trabajo-remoto"]).obtener()
+    FuenteMagneto(rutas=["/co/trabajos/ofertas-empleo-trabajo-remoto"], pausa=0.0).obtener()
 
     for llamada in ruta.calls:
         assert not llamada.request.url.query, f"URL con parámetros: {llamada.request.url}"
@@ -1082,11 +1383,27 @@ def test_magneto_declara_su_permiso_y_atribucion():
 
 
 @respx.mock
-def test_magneto_devuelve_vacio_si_falla():
+def test_magneto_devuelve_vacio_si_falla(monkeypatch):
+    monkeypatch.setattr("boletin_empleos.http.time.sleep", lambda _: None)
     respx.get(url__startswith="https://www.magneto365.com/co/trabajos/").mock(
         return_value=httpx.Response(404)
     )
-    assert FuenteMagneto(rutas=["/co/trabajos/ofertas-empleo-trabajo-remoto"]).obtener() == []
+    assert (
+        FuenteMagneto(rutas=["/co/trabajos/ofertas-empleo-trabajo-remoto"], pausa=0.0).obtener()
+        == []
+    )
+
+
+@respx.mock
+def test_magneto_omite_la_ruta_con_parametros_sin_lanzar():
+    """Una ruta mal formada no debe abortar las demás: el adaptador nunca lanza."""
+    respx.get("https://www.magneto365.com/co/trabajos/buscar").mock(
+        return_value=httpx.Response(200, text=FIXTURE)
+    )
+    ofertas = FuenteMagneto(
+        rutas=["/co/trabajos/buscar?utm_source=x", "/co/trabajos/buscar"], pausa=0.0
+    ).obtener()
+    assert ofertas, "la ruta válida debe seguir aportando pese a la inválida"
 ```
 
 - [ ] **Step 3: Ejecutar y verificar que falla**
@@ -1119,19 +1436,30 @@ from boletin_empleos.modelos import Modalidad, Oferta
 _log = logging.getLogger(__name__)
 _ORIGEN = "https://www.magneto365.com"
 
-# Rutas canónicas listadas por el propio llms.txt de Magneto.
+# Rutas canónicas del llms.txt de Magneto, VERIFICADAS el 9/09/2026 (todas HTTP 200).
+# `/co/trabajos/ofertas-empleo-trabajo-remoto` se excluye a propósito: devuelve HTTP 500
+# desde el servidor de Magneto, no por culpa de nuestro agente. Si lo arreglan, se añade.
 RUTAS_POR_DEFECTO = [
-    "/co/trabajos/ofertas-empleo-trabajo-remoto",
+    "/co/trabajos/buscar",
     "/co/trabajos/ofertas-empleo-en-bogota",
     "/co/trabajos/ofertas-empleo-en-medellin",
     "/co/trabajos/ofertas-empleo-en-pereira",
 ]
 
-# Ajustar contra la fixture descargada en el paso 1 de esta tarea.
-_SEL_TARJETA = "article, li[class*=job], div[class*=job-card]"
-_SEL_TITULO = "h2, h3, [class*=title]"
-_SEL_EMPRESA = "[class*=company], [class*=empresa]"
-_SEL_UBICACION = "[class*=location], [class*=ubicacion], [class*=city]"
+# Selectores verificados contra el HTML real de Magneto el 9/09/2026: cada vacante es un
+# <article> que contiene un enlace a /co/empleos/<slug> y un <h2> con el título — 21 de 21
+# tarjetas cumplen ambas condiciones. Deliberadamente NO se usan las clases
+# `mg_job_card_desktop_magneto-ui-card-jobs_13c81`: llevan hash de CSS-modules y cambian
+# en cada despliegue suyo.
+_SEL_TARJETA = "article"
+_SEL_ENLACE = 'a[href*="/co/empleos/"]'
+_SEL_TITULO = "h2"
+
+# El texto de la tarjeta viene segmentado de forma estable:
+#   [0] título · [1] empresa · [2] tipo de contrato · [3] salario · [4] ubicación · [5] urgencia
+_IDX_EMPRESA = 1
+_IDX_UBICACION = 4
+_MIN_SEGMENTOS, _MAX_SEGMENTOS = 4, 8
 
 
 class FuenteMagneto:
@@ -1153,10 +1481,22 @@ class FuenteMagneto:
         vistos: set[str] = set()
         ofertas: list[Oferta] = []
 
-        with crear_cliente() as cliente:
+        with crear_cliente(acepta="text/html,application/xhtml+xml") as cliente:
             for ruta in self._rutas:
-                assert "?" not in ruta, "Magneto prohíbe URLs con parámetros"
-                respuesta = reintentar(lambda: cliente.get(f"{_ORIGEN}{ruta}").raise_for_status())
+                if "?" in ruta:
+                    # Se omite, no se lanza: una ruta mal formada no debe abortar las
+                    # demás, igual que no lo hace una ruta caída por HTTP. El contrato
+                    # global dice que un adaptador nunca lanza excepción.
+                    _log.error(
+                        "magneto: ruta con parámetros, se omite por respeto a su robots.txt: %s",
+                        ruta,
+                    )
+                    continue
+                # `r=ruta` se liga como argumento por defecto: sin esto ruff marca B023
+                # (función que captura una variable de bucle).
+                respuesta = reintentar(
+                    lambda r=ruta: cliente.get(f"{_ORIGEN}{r}").raise_for_status()
+                )
                 if respuesta is None:
                     _log.error("magneto: no se pudo obtener %s", ruta)
                     continue
@@ -1171,55 +1511,58 @@ class FuenteMagneto:
     def _extraer(self, html: str, ahora: datetime):
         arbol = HTMLParser(html)
         for tarjeta in arbol.css(_SEL_TARJETA):
-            enlace = tarjeta.css_first("a[href]")
+            enlace = tarjeta.css_first(_SEL_ENLACE)
             titulo = tarjeta.css_first(_SEL_TITULO)
             if enlace is None or titulo is None:
                 continue
+
             href = enlace.attributes.get("href") or ""
-            if "/trabajos/" not in href:
-                continue
-            url = href if href.startswith("http") else f"{_ORIGEN}{href}"
-            url = url.split("?")[0]
+            url = (href if href.startswith("http") else f"{_ORIGEN}{href}").split("?")[0]
+            segmentos = _segmentos(tarjeta)
             try:
                 yield Oferta(
                     id=f"magneto:{url.rstrip('/').rsplit('/', 1)[-1]}",
                     fuente=self.nombre,
                     titulo=titulo.text(strip=True),
-                    empresa=_texto(tarjeta, _SEL_EMPRESA),
-                    ubicacion=_texto(tarjeta, _SEL_UBICACION),
+                    empresa=_segmento(segmentos, _IDX_EMPRESA),
+                    ubicacion=_segmento(segmentos, _IDX_UBICACION),
                     pais="CO",
                     modalidad=Modalidad.PRESENCIAL,
                     url=url,
-                    descripcion=tarjeta.text(strip=True)[:2000],
+                    descripcion=tarjeta.text(separator=" · ", strip=True)[:2000],
                     recogida_en=ahora,
                 )
             except ValueError as e:
                 _log.warning("magneto: tarjeta descartada: %s", e)
 
 
-def _texto(nodo, selector: str) -> str | None:
-    encontrado = nodo.css_first(selector)
-    return encontrado.text(strip=True) if encontrado else None
+def _segmentos(tarjeta) -> list[str]:
+    """Segmentos de texto de la tarjeta, solo si su número es el esperado.
+
+    Una tarjeta con un número anómalo de segmentos no se descarta: conserva título y
+    enlace, y deja empresa y ubicación en None. Es preferible una oferta con datos
+    incompletos a perder la oferta.
+    """
+    partes = [p.strip() for p in tarjeta.text(separator="|", strip=True).split("|") if p.strip()]
+    return partes if _MIN_SEGMENTOS <= len(partes) <= _MAX_SEGMENTOS else []
+
+
+def _segmento(segmentos: list[str], indice: int) -> str | None:
+    return segmentos[indice] if indice < len(segmentos) else None
 ```
 
-- [ ] **Step 5: Ajustar selectores contra la fixture hasta que el test pase**
+- [ ] **Step 5: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_fuente_magneto.py -v`
+Expected: PASS — 5 tests
 
-Si `test_magneto_extrae_ofertas_del_listado` falla con la lista vacía, inspecciona la fixture:
+Los selectores ya están verificados contra el HTML real, así que esto debería pasar a la primera.
+Si `test_magneto_extrae_ofertas_del_listado` falla porque salieron menos de 15 ofertas, significa
+que Magneto cambió su marcado desde el 9/09/2026. Diagnostica contando `article`, cuántos tienen
+un enlace a `/co/empleos/` y cuántos tienen `<h2>`.
 
-```bash
-uv run python -c "
-from selectolax.parser import HTMLParser
-h = HTMLParser(open('tests/fixtures/magneto_listado.html',encoding='utf-8').read())
-for sel in ['article','li','div[class*=card]','div[class*=job]','div[class*=vacante]']:
-    print(sel, '->', len(h.css(sel)))
-"
-```
-
-Ajusta `_SEL_TARJETA`, `_SEL_TITULO`, `_SEL_EMPRESA` y `_SEL_UBICACION` con lo que encuentres. Repite hasta PASS.
-
-Expected: PASS — 4 tests
+Si el marcado cambió, repórtalo como DONE_WITH_CONCERNS con lo que encontraste: es información que
+el controlador necesita, no algo que debas resolver adivinando.
 
 - [ ] **Step 6: Formatear y commitear**
 
@@ -1240,7 +1583,7 @@ git commit -m "feat: adaptador Magneto365 sobre rutas canónicas"
 
 **Interfaces:**
 - Consumes: nada del proyecto
-- Produces: `Config`, `Vocabulario`, `UmbralesLegitimidad`, `cargar_config(ruta) -> Config`
+- Produces: `Config`, `Vocabulario`, `PesosRelevancia`, `ConfigExperiencia`, `UmbralesLegitimidad`, `cargar_config(ruta) -> Config`
 
 `config.toml` existe para que el vocabulario, los umbrales y las heurísticas antiestafa se ajusten sin
 tocar Python (spec §14).
@@ -1271,7 +1614,9 @@ def test_carga_el_config_del_proyecto():
 def test_los_terminos_del_vocabulario_estan_normalizados():
     cfg = cargar_config(RAIZ / "config.toml")
     todos = cfg.vocabulario.cargos + cfg.vocabulario.tecnologias
-    assert all(t == t.lower().strip() for t in todos), "deben venir en minúscula y sin espacios extra"
+    assert all(t == t.lower().strip() for t in todos), (
+        "deben venir en minúscula y sin espacios extra"
+    )
 ```
 
 - [ ] **Step 2: Ejecutar y verificar que falla**
@@ -1294,10 +1639,23 @@ dias_max_antiguedad = 30
 max_meses_experiencia = 60      # 5 años: por encima se considera senior
 excluir_practicas = true        # la audiencia son egresados, no practicantes
 
+[relevancia]
+# Cómo se pondera una coincidencia. Estos números deciden si una oferta supera
+# `umbral_relevancia`, así que viven aquí y no incrustados en Python: afinar el
+# filtro no debe exigir saber programar.
+peso_titulo = 0.7           # una coincidencia en el título vale mucho más
+peso_descripcion = 0.3      # que una en la descripción
+saturacion_base = 0.6       # lo que aporta la PRIMERA coincidencia
+saturacion_incremento = 0.2 # lo que aporta cada coincidencia adicional
+
 [vocabulario]
 cargos = [
   "desarrollador", "developer", "programador", "ingeniero de software",
   "ingeniero de sistemas", "analista de sistemas", "analista de desarrollo",
+  # Formas femeninas de los cargos compuestos: la flexión automática solo alcanza
+  # al final del término, así que "ingeniero de sistemas" no cubre "ingeniera de
+  # sistemas". Las simples ("desarrollador" -> "desarrolladora") sí se cubren solas.
+  "ingeniera de software", "ingeniera de sistemas", "analista de tecnologia",
   "backend", "back end", "frontend", "front end", "full stack", "fullstack",
   "qa", "tester", "automatizacion de pruebas", "devops", "sre",
   "ingeniero de datos", "data engineer", "desarrollador movil", "android", "ios",
@@ -1308,19 +1666,54 @@ tecnologias = [
   "node", ".net", "c#", "php", "spring", "django", "laravel", "flutter",
   "sql", "postgresql", "mysql", "mongodb", "docker", "kubernetes",
   "aws", "azure", "git", "api rest", "microservicios",
+  # Variantes pegadas: el emparejamiento exige frontera de palabra, así que
+  # "react" NO casa dentro de "reactjs". Se listan como dato, que es la vía
+  # de ajuste prevista por el diseño.
+  "reactjs", "nodejs", "vuejs", "angularjs", "nestjs", "nextjs",
 ]
 # Términos que descalifican aunque haya coincidencias tecnológicas.
 excluidos = [
   "vendedor", "asesor comercial", "call center", "domiciliario",
   "auxiliar de bodega", "mesero", "vigilante", "conductor",
+  "operario",
 ]
 
-[seniority]
-# Descartan por exceso de seniority.
+# Términos que NO admiten sufijo de flexión española, PESE a ser sustantivos de agente.
+#
+# El emparejamiento flexiona (femenino y plural) para que "desarrollador" cubra
+# "Desarrolladora Backend", y decide quién se flexiona por MORFOLOGÍA: solo los
+# sustantivos de agente (-dor, -or, -ero, -ente, -ista...). Esa regla ya deja fuera
+# sola a las tecnologías —"docker", "angular", "android", "tester"— sin necesidad
+# de enumerarlas.
+#
+# Esta lista es solo para los casos en que la morfología acierta pero el resultado
+# colisiona igual, y SOLO surte efecto sobre `cargos` y `tecnologias`: sobre
+# `excluidos` se ignora a propósito, porque ahí negar la flexión abre agujeros en
+# vez de cerrarlos.
+#
+# Hoy está vacía. `conductor` estuvo aquí y hubo que sacarlo: vive en `excluidos`,
+# así que negarle la flexión dejaba pasar "Conductores"/"Conductora con manejo de
+# app Android" —ofertas de repartidor, altísima frecuencia en Colombia— mientras
+# seguía excluyendo el singular. El riesgo que lo justificaba (una oferta de
+# firmware que mencione "conductores eléctricos") es mucho menos frecuente.
+sin_flexion = []
+
+[experiencia]
+# Descartan por exigir un nivel de experiencia demasiado alto.
+# Son datos, no símbolos: coinciden con el texto real de las ofertas.
+#
+# "principal" a secas NO está en la lista a propósito: en español colombiano
+# significa casi siempre "sede principal" o "cajero principal", y descartaría un
+# "Desarrollador - Sede Principal" como si fuera senior. Se usan en su lugar las
+# formas inglesas inequívocas, que son las que aparecen en las fuentes remotas.
 terminos_excluidos = [
   "senior", "sr.", "lead", "lider tecnico", "líder técnico", "arquitecto jefe",
-  "jefe de", "gerente", "director", "head of", "principal", "staff engineer",
+  "jefe de", "gerente", "director", "head of", "staff engineer",
+  "principal engineer", "principal software", "principal developer",
   "coordinador de desarrollo",
+  # Plurales ingleses: la regla morfológica es española y no flexiona `-er`,
+  # porque ahí viven `docker`, `tester` y `flutter`. Se cubren como dato.
+  "staff engineers", "principal engineers", "principal developers",
 ]
 
 [legitimidad]
@@ -1359,9 +1752,25 @@ class Vocabulario(BaseModel):
     cargos: list[str] = Field(default_factory=list)
     tecnologias: list[str] = Field(default_factory=list)
     excluidos: list[str] = Field(default_factory=list)
+    # Términos que no admiten flexión: nombres propios de tecnología que, al
+    # recibir sufijo, chocan con palabras españolas reales (ver config.toml).
+    sin_flexion: list[str] = Field(default_factory=list)
 
 
-class ConfigSeniority(BaseModel):
+class PesosRelevancia(BaseModel):
+    """Cómo se pondera una coincidencia al puntuar relevancia.
+
+    Vive en config.toml, no incrustado en Python: estos números deciden si una
+    oferta supera el umbral, y afinar el filtro no debe exigir saber programar.
+    """
+
+    peso_titulo: float = Field(default=0.7, ge=0.0, le=1.0)
+    peso_descripcion: float = Field(default=0.3, ge=0.0, le=1.0)
+    saturacion_base: float = Field(default=0.6, gt=0.0, le=1.0)
+    saturacion_incremento: float = Field(default=0.2, ge=0.0, le=1.0)
+
+
+class ConfigExperiencia(BaseModel):
     terminos_excluidos: list[str] = Field(default_factory=list)
 
 
@@ -1382,8 +1791,9 @@ class Config(BaseModel):
     dias_max_antiguedad: int = Field(gt=0)
     max_meses_experiencia: int = 60
     excluir_practicas: bool = True
+    relevancia: PesosRelevancia = Field(default_factory=PesosRelevancia)
     vocabulario: Vocabulario = Field(default_factory=Vocabulario)
-    seniority: ConfigSeniority = Field(default_factory=ConfigSeniority)
+    experiencia: ConfigExperiencia = Field(default_factory=ConfigExperiencia)
     legitimidad: UmbralesLegitimidad = Field(default_factory=UmbralesLegitimidad)
 
 
@@ -1407,20 +1817,20 @@ git commit -m "feat: configuración externa en config.toml"
 
 ---
 
-### Task 7: Núcleo — relevancia, seniority y vigencia
+### Task 7: Núcleo — relevancia, nivel de experiencia y vigencia
 
 **Files:**
 - Create: `src/boletin_empleos/nucleo/__init__.py`
 - Create: `src/boletin_empleos/nucleo/relevancia.py`
-- Create: `src/boletin_empleos/nucleo/seniority.py`
+- Create: `src/boletin_empleos/nucleo/experiencia.py`
 - Create: `src/boletin_empleos/nucleo/vigencia.py`
 - Create: `tests/test_nucleo_filtros.py`
 
 **Interfaces:**
-- Consumes: `Oferta`, `Vocabulario`, `ConfigSeniority`
+- Consumes: `Oferta`, `Vocabulario`, `ConfigExperiencia`
 - Produces:
   - `puntuar_relevancia(oferta: Oferta, vocabulario: Vocabulario) -> float`
-  - `seniority_apropiado(oferta: Oferta, cfg: ConfigSeniority, max_meses: int) -> tuple[bool, str]`
+  - `experiencia_apropiada(oferta: Oferta, cfg: ConfigExperiencia, max_meses: int) -> tuple[bool, str]`
   - `esta_vigente(oferta: Oferta, hoy: date, dias_max: int) -> tuple[bool, str]`
   - `normalizar_texto(texto: str) -> str`
 
@@ -1430,10 +1840,17 @@ git commit -m "feat: configuración externa en config.toml"
 # tests/test_nucleo_filtros.py
 from datetime import UTC, date, datetime
 
-from boletin_empleos.config import ConfigSeniority, Vocabulario
+import pytest
+
+from boletin_empleos.config import ConfigExperiencia, Vocabulario
 from boletin_empleos.modelos import Modalidad, Oferta
-from boletin_empleos.nucleo.relevancia import normalizar_texto, puntuar_relevancia
-from boletin_empleos.nucleo.seniority import seniority_apropiado
+from boletin_empleos.nucleo.relevancia import (
+    admite_flexion,
+    contiene,
+    normalizar_texto,
+    puntuar_relevancia,
+)
+from boletin_empleos.nucleo.experiencia import experiencia_apropiada
 from boletin_empleos.nucleo.vigencia import esta_vigente
 
 VOCAB = Vocabulario(
@@ -1471,6 +1888,152 @@ def test_relevancia_baja_para_oferta_no_tecnica():
     assert puntuar_relevancia(o, VOCAB) < 0.2
 
 
+@pytest.mark.parametrize(
+    "titulo",
+    [
+        "Analista de Negocios",
+        "Auxiliar de Servicios Generales",
+        "Coordinador de Estudios",
+        "Jardinero y Oficios Varios",
+        "Asesor de Medios",
+        "Operario de Vidrios",
+    ],
+)
+def test_relevancia_no_casa_terminos_dentro_de_otras_palabras(titulo):
+    """`ios` no debe casar dentro de negocios, servicios, estudios, oficios...
+
+    Medido sobre 50 ofertas reales del SPE: con emparejamiento por subcadena, la
+    única que pasaba el filtro era "Jardinero y Oficios Varios".
+    """
+    vocabulario = Vocabulario(cargos=["desarrollador"], tecnologias=["ios", "qa", "sre"])
+    assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
+
+
+@pytest.mark.parametrize(
+    ("termino", "titulo", "debe_casar"),
+    [
+        ("ios", "Desarrollador iOS Senior", True),
+        ("ios", "Analista de Negocios", False),
+        ("qa", "Analista QA", True),
+        ("qa", "Asesor en Qatar", False),
+        (".net", "Desarrollador ASP.NET Core", True),
+        (".net", "Técnico en Planeta", False),
+        ("c#", "Programador C# Junior", True),
+        ("java", "Desarrollador Java", True),
+        ("java", "Analista JavaScript", False),
+        ("sql", "Administrador SQL Server", True),
+        ("sql", "Consultor NoSQL", False),
+        ("git", "Manejo de Git", True),
+        ("git", "Digitador", False),
+        # Flexión española: las ofertas colombianas se escriben en femenino y plural.
+        ("desarrollador", "Desarrolladora Backend", True),
+        ("programador", "Programadora Python", True),
+        ("desarrollador", "Desarrolladores Senior", True),
+        # ...sin que la concesión abra colisiones nuevas:
+        ("director", "Analista de Directorio Activo", False),
+        ("analista", "Analistica de Datos", False),
+        # Los acrónimos cortos NO se flexionan, para que 'sre' no case en 'Sres.':
+        ("sre", "Gerente de Sres. Clientes", False),
+        ("sre", "Ingeniero SRE", True),
+    ],
+)
+def test_contiene_respeta_las_fronteras_de_palabra(termino, titulo, debe_casar):
+    """`.net` sí debe casar dentro de `asp.net`; `java` no dentro de `javascript`."""
+    assert contiene(normalizar_texto(titulo), termino) is debe_casar
+
+
+@pytest.mark.parametrize(
+    ("termino", "esperado"),
+    [
+        # Sustantivos de agente: SÍ se flexionan.
+        ("desarrollador", True),
+        ("programador", True),
+        ("vendedor", True),
+        ("director", True),
+        ("gerente", True),
+        ("analista", True),
+        ("mesero", True),
+        ("vigilante", True),
+        # Nombres propios de tecnología: NO. Cada uno colisionaba de verdad.
+        ("docker", False),  # "Dockers", marca de ropa
+        ("angular", False),  # "angulares", metalmecánica
+        ("android", False),  # "androides"
+        ("tester", False),  # "testeros", mueblería y colchonería
+        ("python", False),
+        ("kubernetes", False),
+        # Acrónimos cortos: tampoco.
+        ("ios", False),
+        ("qa", False),
+        ("sre", False),
+        # Compuestos: la flexión iría al final de la frase y no serviría.
+        ("ingeniero de sistemas", False),
+    ],
+)
+def test_solo_se_flexionan_los_sustantivos_de_agente(termino, esperado):
+    """La regla es morfológica, no una lista de excepciones que haya que auditar.
+
+    Un criterio por longitud no bastaba: `docker` y `tester` tienen 6 caracteres.
+    """
+    assert admite_flexion(termino) is esperado
+
+
+@pytest.mark.parametrize(
+    "titulo",
+    [
+        "Asesor de Ventas - Tienda Dockers",
+        "Técnico en corte de piezas angulares",
+        "Operario de estructuras angulares en vidrio",
+        "Ensamblador de Testeros para Fábrica de Colchones",
+        "Operario de Producción - Testeros en madera",
+    ],
+)
+def test_relevancia_no_flexiona_nombres_propios_de_tecnologia(titulo):
+    """`docker` no casa en *Dockers*, ni `angular` en *angulares*, ni `tester` en *testeros*.
+
+    Los tres son palabras españolas reales de mueblería, metalmecánica y comercio.
+    Ninguno está en `sin_flexion`: los excluye la morfología, no una lista.
+    """
+    vocabulario = Vocabulario(
+        cargos=["desarrollador", "tester"],
+        tecnologias=["docker", "angular"],
+    )
+    assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
+
+
+def test_la_flexion_sigue_activa_para_los_cargos_en_femenino():
+    """Negar la flexión a las tecnologías no debe romper los cargos."""
+    vocabulario = Vocabulario(cargos=["desarrollador", "programador"], tecnologias=["docker"])
+    assert puntuar_relevancia(_oferta("Desarrolladora Backend"), vocabulario) > 0.35
+    assert puntuar_relevancia(_oferta("Programadoras Python"), vocabulario) > 0.35
+
+
+def test_negar_la_flexion_no_es_negar_el_termino():
+    """`docker` y `tester` deben seguir casando en su forma exacta."""
+    vocabulario = Vocabulario(cargos=["desarrollador", "tester"], tecnologias=["docker", "angular"])
+    assert puntuar_relevancia(_oferta("Desarrollador Docker y Kubernetes"), vocabulario) > 0.35
+    assert puntuar_relevancia(_oferta("Tester de Software"), vocabulario) > 0.35
+    assert puntuar_relevancia(_oferta("Ingeniero Angular"), vocabulario) > 0.35
+
+
+@pytest.mark.parametrize(
+    "titulo",
+    ["Conductor con manejo de App", "Conductores con manejo de App", "Conductora con manejo de App"],
+)
+def test_sin_flexion_no_debilita_la_lista_de_excluidos(titulo):
+    """`sin_flexion` no puede aplicarse a `excluidos`: ahí abre agujeros.
+
+    Negar la flexión estrecha el emparejamiento. En una lista de inclusión eso
+    reduce falsos positivos; en una de exclusión reduce las exclusiones. Con
+    `conductor` en `sin_flexion`, el singular se excluía y el plural se colaba.
+    """
+    vocabulario = Vocabulario(
+        cargos=["android"],
+        excluidos=["conductor"],
+        sin_flexion=["conductor"],  # se declara, pero sobre `excluidos` debe ignorarse
+    )
+    assert puntuar_relevancia(_oferta(titulo), vocabulario) == 0.0
+
+
 def test_termino_excluido_anula_la_relevancia():
     o = _oferta("Asesor Comercial", "Manejo de Python para reportes internos.")
     assert puntuar_relevancia(o, VOCAB) == 0.0
@@ -1482,26 +2045,47 @@ def test_el_titulo_pesa_mas_que_la_descripcion():
     assert puntuar_relevancia(en_titulo, VOCAB) > puntuar_relevancia(en_descripcion, VOCAB)
 
 
-CFG_SENIORITY = ConfigSeniority(terminos_excluidos=["senior", "lead", "jefe de"])
+CFG_EXPERIENCIA = ConfigExperiencia(terminos_excluidos=["senior", "lead", "jefe de"])
 
 
-def test_seniority_rechaza_cargos_senior():
-    ok, motivo = seniority_apropiado(_oferta("Senior Backend Developer"), CFG_SENIORITY, 60)
+def test_experiencia_rechaza_cargos_senior():
+    ok, motivo = experiencia_apropiada(_oferta("Senior Backend Developer"), CFG_EXPERIENCIA, 60)
     assert ok is False
     assert "senior" in motivo
 
 
-def test_seniority_rechaza_por_exceso_de_experiencia():
-    ok, motivo = seniority_apropiado(
-        _oferta("Desarrollador", meses_experiencia=84), CFG_SENIORITY, 60
+def test_experiencia_rechaza_por_exceso():
+    ok, motivo = experiencia_apropiada(
+        _oferta("Desarrollador", meses_experiencia=84), CFG_EXPERIENCIA, 60
     )
     assert ok is False
     assert "84" in motivo
 
 
-def test_seniority_acepta_junior():
-    ok, motivo = seniority_apropiado(
-        _oferta("Desarrollador Junior", meses_experiencia=12), CFG_SENIORITY, 60
+@pytest.mark.parametrize(
+    ("titulo", "debe_pasar"),
+    [
+        # Colisiones REALES de subcadena que la frontera debe evitar.
+        # Ojo: el título NO debe contener ninguno de los términos excluidos por sí
+        # mismo, o el caso se contradice — por eso "Soporte de", no "Analista de".
+        ("Soporte de Directorio Activo", True),  # 'directorio' contiene 'director'
+        ("Regente de Farmacia", True),  # 'regente' contiene 'gerente'
+        ("Analistica de Datos", True),  # 'analistica' contiene 'analista'
+        # Flexión española: SÍ deben descartarse, aunque no coincidan literalmente:
+        ("Directora de Tecnología", False),
+        ("Gerentes de Proyecto", False),
+    ],
+)
+def test_experiencia_distingue_flexion_de_colision(titulo, debe_pasar):
+    """La frontera debe evitar colisiones sin perder género ni plural del español."""
+    cfg = ConfigExperiencia(terminos_excluidos=["director", "gerente", "analista"])
+    ok, _ = experiencia_apropiada(_oferta(titulo), cfg, 60)
+    assert ok is debe_pasar, titulo
+
+
+def test_experiencia_acepta_junior():
+    ok, motivo = experiencia_apropiada(
+        _oferta("Desarrollador Junior", meses_experiencia=12), CFG_EXPERIENCIA, 60
     )
     assert ok is True
     assert motivo == ""
@@ -1541,13 +2125,40 @@ Expected: FAIL con `ModuleNotFoundError: No module named 'boletin_empleos.nucleo
 # src/boletin_empleos/nucleo/relevancia.py
 """Puntuación de relevancia. Lógica pura: sin red, sin disco."""
 
+import re
 import unicodedata
+from functools import lru_cache
 
-from boletin_empleos.config import Vocabulario
+from boletin_empleos.config import PesosRelevancia, Vocabulario
 from boletin_empleos.modelos import Oferta
 
-_PESO_TITULO = 0.7
-_PESO_DESCRIPCION = 0.3
+_SUFIJOS_FLEXION = r"(?:as|es|os|a|s)?"
+_LONGITUD_MINIMA_FLEXION = 5
+
+# En español solo se flexionan los SUSTANTIVOS DE AGENTE, y tienen terminaciones
+# características. Esto no es una lista de excepciones que haya que auditar: es
+# morfología, y por eso se sostiene ante vocabulario nuevo.
+#
+# Deja fuera automáticamente `docker` (-er), `angular` (-ar), `android` (-id) y
+# `tester` (-er), que al flexionarse chocaban con *Dockers* (marca de ropa),
+# *angulares* (metalmecánica), *androides* y *testeros* (mueblería). Y deja fuera
+# las 32 tecnologías del vocabulario, que son nombres propios.
+#
+# Un criterio anterior por longitud no bastaba: `docker` tiene 6 caracteres y
+# `tester` 6, ambos muy por encima de cualquier umbral razonable.
+_TERMINACIONES_DE_AGENTE = (
+    "dor", "or", "ero", "era", "ario", "ente", "ante", "ista", "logo", "grafo",
+)
+
+
+def admite_flexion(termino: str) -> bool:
+    """¿Es `termino` un sustantivo de agente español, que se flexiona?
+
+    Se mira la última palabra: "ingeniero de datos" no se flexiona al final, pero
+    "desarrollador" sí. La longitud mínima protege de terminaciones accidentales.
+    """
+    ultima = termino.split()[-1] if termino.split() else termino
+    return len(ultima) >= _LONGITUD_MINIMA_FLEXION and ultima.endswith(_TERMINACIONES_DE_AGENTE)
 
 
 def normalizar_texto(texto: str) -> str:
@@ -1557,55 +2168,123 @@ def normalizar_texto(texto: str) -> str:
     return " ".join(sin_tildes.lower().split())
 
 
-def puntuar_relevancia(oferta: Oferta, vocabulario: Vocabulario) -> float:
+@lru_cache(maxsize=1024)
+def patron_de(termino: str, permitir_flexion: bool = True) -> re.Pattern[str]:
+    """Compila un término del vocabulario exigiendo frontera de palabra.
+
+    Buscar por subcadena rompe el filtro: `ios` casa dentro de *negocios*,
+    *servicios*, *estudios*, *medios*, *precios* y *oficios* — todas comunísimas
+    en títulos de ofertas colombianas. Medido sobre 50 ofertas reales del SPE, la
+    única que pasaba el filtro era "Jardinero y Oficios Varios".
+
+    La frontera se exige **solo donde el borde del término es alfanumérico**, para
+    que `.net` siga casando dentro de `asp.net` y `c#` siga funcionando.
+
+    A los términos largos que acaban en letra se les permite además un sufijo de
+    flexión española, porque las ofertas colombianas se escriben en femenino y en
+    plural: sin esto, `desarrollador` no casaría dentro de *Desarrolladora Backend*
+    y el filtro descartaría sistemáticamente esas vacantes. Los acrónimos cortos
+    quedan fuera de esa concesión para que `sre` no case dentro de *Sres.*
+
+    Quién se flexiona lo decide `admite_flexion`, por morfología: solo los
+    sustantivos de agente. El parámetro `permitir_flexion` es la escotilla de
+    escape para los pocos casos en que la morfología acierta pero el resultado
+    colisiona igual — `conductor` es sustantivo de agente, pero "conductores"
+    también son cables. Se alimenta de la lista `sin_flexion` de `config.toml`.
+    """
+    inicio = r"(?<![a-z0-9])" if termino[:1].isalnum() else ""
+    flexion = _SUFIJOS_FLEXION if permitir_flexion and admite_flexion(termino) else ""
+    fin = r"(?![a-z0-9])" if termino[-1:].isalnum() else ""
+    return re.compile(inicio + re.escape(termino) + flexion + fin)
+
+
+def contiene(texto_normalizado: str, termino: str, permitir_flexion: bool = True) -> bool:
+    """¿Aparece `termino` en `texto_normalizado` como palabra, no como fragmento?
+
+    El primer parámetro se llama así a propósito: **debe venir ya normalizado** con
+    `normalizar_texto`, mientras que el término se normaliza aquí. La asimetría es
+    deliberada —el texto suele ser una descripción larga que se compara contra
+    decenas de términos, y normalizarla en cada comparación sería desperdicio— y el
+    nombre la hace evidente en cada punto de llamada. Pasar texto crudo devuelve
+    `False` en silencio.
+    """
+    return patron_de(normalizar_texto(termino), permitir_flexion).search(texto_normalizado) is not None
+
+
+def puntuar_relevancia(
+    oferta: Oferta, vocabulario: Vocabulario, pesos: PesosRelevancia | None = None
+) -> float:
     """Devuelve 0.0–1.0. Un término excluido anula la oferta por completo."""
+    pesos = pesos or PesosRelevancia()
     titulo = normalizar_texto(oferta.titulo)
     descripcion = normalizar_texto(oferta.descripcion)
     completo = f"{titulo} {descripcion}"
 
-    if any(normalizar_texto(e) in completo for e in vocabulario.excluidos):
+    sin_flexion = {normalizar_texto(s) for s in vocabulario.sin_flexion}
+
+    def flexionable(termino: str) -> bool:
+        """`sin_flexion` solo aplica a las listas de INCLUSIÓN, nunca a `excluidos`.
+
+        Negar la flexión estrecha el emparejamiento, y esa asimetría importa:
+        en `cargos` y `tecnologias` estrechar reduce falsos positivos, que es lo
+        que se busca; en `excluidos` estrechar reduce las EXCLUSIONES, es decir
+        aumenta los falsos positivos. Con `conductor` en `sin_flexion`,
+        "Conductor" se excluía pero "Conductores" y "Conductora" se colaban.
+        """
+        return normalizar_texto(termino) not in sin_flexion
+
+    # La lista de exclusión se empareja SIEMPRE con flexión: una exclusión de más
+    # es ruido menos en el boletín; una exclusión de menos es basura dentro.
+    if any(contiene(completo, e) for e in vocabulario.excluidos):
         return 0.0
 
-    terminos = [normalizar_texto(t) for t in vocabulario.cargos + vocabulario.tecnologias]
+    terminos = vocabulario.cargos + vocabulario.tecnologias
     if not terminos:
         return 0.0
 
-    en_titulo = sum(1 for t in terminos if t in titulo)
-    en_descripcion = sum(1 for t in terminos if t in descripcion)
+    en_titulo = sum(1 for t in terminos if contiene(titulo, t, flexionable(t)))
+    en_descripcion = sum(1 for t in terminos if contiene(descripcion, t, flexionable(t)))
 
-    puntaje = _PESO_TITULO * _saturar(en_titulo) + _PESO_DESCRIPCION * _saturar(en_descripcion)
+    puntaje = pesos.peso_titulo * _saturar(en_titulo, pesos) + pesos.peso_descripcion * _saturar(
+        en_descripcion, pesos
+    )
     return round(min(puntaje, 1.0), 4)
 
 
-def _saturar(coincidencias: int) -> float:
+def _saturar(coincidencias: int, pesos: PesosRelevancia) -> float:
     """1 coincidencia ya vale mucho; más coincidencias suman con rendimiento decreciente."""
     if coincidencias <= 0:
         return 0.0
-    return min(1.0, 0.6 + 0.2 * (coincidencias - 1))
+    return min(1.0, pesos.saturacion_base + pesos.saturacion_incremento * (coincidencias - 1))
 ```
 
-- [ ] **Step 4: Implementar seniority y vigencia**
+- [ ] **Step 4: Implementar experiencia y vigencia**
 
 ```python
-# src/boletin_empleos/nucleo/seniority.py
-"""Filtro de seniority: junior a semi-senior. Lógica pura."""
+# src/boletin_empleos/nucleo/experiencia.py
+"""Filtro de nivel de experiencia: junior a semi-senior. Lógica pura."""
 
-from boletin_empleos.config import ConfigSeniority
+from boletin_empleos.config import ConfigExperiencia
 from boletin_empleos.modelos import Oferta
-from boletin_empleos.nucleo.relevancia import normalizar_texto
+from boletin_empleos.nucleo.relevancia import contiene, normalizar_texto
 
 
-def seniority_apropiado(
-    oferta: Oferta, cfg: ConfigSeniority, max_meses: int
-) -> tuple[bool, str]:
-    """Devuelve (apropiado, motivo). El motivo va vacío cuando la oferta pasa."""
+def experiencia_apropiada(oferta: Oferta, cfg: ConfigExperiencia, max_meses: int) -> tuple[bool, str]:
+    """Devuelve (apropiado, motivo). El motivo va vacío cuando la oferta pasa.
+
+    El emparejamiento es por frontera de palabra, igual que en relevancia: por
+    subcadena, `lead` casaría dentro de *liderar* y `sr.` dentro de otras siglas.
+    """
     titulo = normalizar_texto(oferta.titulo)
     for termino in cfg.terminos_excluidos:
-        if normalizar_texto(termino) in titulo:
-            return (False, f"el título indica seniority alto: '{termino}'")
+        if contiene(titulo, termino):
+            return (False, f"el título indica un nivel de experiencia alto: '{termino}'")
 
     if oferta.meses_experiencia is not None and oferta.meses_experiencia > max_meses:
-        return (False, f"exige {oferta.meses_experiencia} meses de experiencia (máximo {max_meses})")
+        return (
+            False,
+            f"exige {oferta.meses_experiencia} meses de experiencia (máximo {max_meses})",
+        )
 
     return (True, "")
 ```
@@ -1649,7 +2328,7 @@ Expected: PASS — 11 tests
 ```bash
 uv run ruff format . && uv run ruff check --fix .
 git add src/ tests/
-git commit -m "feat: filtros de relevancia, seniority y vigencia"
+git commit -m "feat: filtros de relevancia, nivel de experiencia y vigencia"
 ```
 
 ---
@@ -1672,6 +2351,8 @@ coordinación debe revisarlas (spec §8.4). Viven en `config.toml` para poder aj
 ```python
 # tests/test_nucleo_legitimidad.py
 from datetime import UTC, datetime
+
+import pytest
 
 from boletin_empleos.config import UmbralesLegitimidad
 from boletin_empleos.modelos import Modalidad, Oferta
@@ -1734,6 +2415,22 @@ def test_dominio_acortado_penaliza_fuerte():
     puntaje, notas = puntuar_legitimidad(o, 0.95, CFG)
     assert puntaje < 0.6
     assert any("bit.ly" in n for n in notas)
+
+
+@pytest.mark.parametrize(
+    ("url", "penalizada"),
+    [
+        ("https://bit.ly/vacante123", True),
+        ("https://www.bit.ly/vacante123", True),  # subdominio del acortador
+        ("https://export.media/vacante", False),  # contiene "t.me" como subcadena
+        ("https://smart.mercadolibre.com/x", False),  # también contiene "t.me"
+        ("https://cutt.ly.empresa.co/x", False),  # rótulo dentro de un dominio ajeno
+    ],
+)
+def test_dominio_sospechoso_se_compara_contra_el_host(url, penalizada):
+    """Por subcadena de la URL, "t.me" casaría dentro de export.media."""
+    puntaje, _ = puntuar_legitimidad(_oferta(url=url), 0.95, CFG)
+    assert (puntaje < 0.95) is penalizada
 
 
 def test_salario_fuera_de_rango_penaliza():
@@ -1800,7 +2497,10 @@ def puntuar_legitimidad(
 ) -> tuple[float, list[str]]:
     """Devuelve (puntaje 0.0–1.0, notas). 0.0 significa descarte inmediato."""
     texto = normalizar_texto(f"{oferta.titulo} {oferta.descripcion}")
-    url = str(oferta.url).lower()
+    # Se compara contra el HOST, no contra la URL entera: "t.me" es subcadena de
+    # export.media o de smart.mercadolibre.com, y por subcadena restaría 0.40 a
+    # ofertas legítimas. `HttpUrl.host` evita `urllib`, prohibido en el núcleo.
+    host = (oferta.url.host or "").lower()
     notas: list[str] = []
 
     # --- Señales de descarte inmediato ---
@@ -1821,7 +2521,7 @@ def puntuar_legitimidad(
         notas.append("el contacto es por mensajería personal")
 
     for dominio in cfg.dominios_sospechosos:
-        if dominio.lower() in url:
+        if _es_el_host(host, dominio):
             puntaje -= _PENALIZACION_FUERTE
             notas.append(f"enlace hacia dominio sospechoso: {dominio}")
             break
@@ -1847,6 +2547,16 @@ def puntuar_legitimidad(
     return (round(max(0.0, min(1.0, puntaje)), 4), notas)
 
 
+def _es_el_host(host: str, dominio: str) -> bool:
+    """¿Es `dominio` el host de la oferta o un dominio padre suyo?
+
+    `www.bit.ly` cuenta como `bit.ly`; `cutt.ly.empresa.co` no cuenta como `cutt.ly`,
+    porque ahí el acortador es solo un rótulo dentro de un dominio ajeno.
+    """
+    dominio = dominio.lower().strip(".")
+    return host == dominio or host.endswith("." + dominio)
+
+
 def _salario_fuera_de_rango(oferta: Oferta, cfg: UmbralesLegitimidad) -> bool:
     """Solo se evalúa en pesos colombianos: un salario en USD es normal en remoto."""
     if oferta.moneda != "COP":
@@ -1861,7 +2571,7 @@ def _salario_fuera_de_rango(oferta: Oferta, cfg: UmbralesLegitimidad) -> bool:
 - [ ] **Step 4: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_nucleo_legitimidad.py -v`
-Expected: PASS — 9 tests
+Expected: PASS — 14 tests
 
 - [ ] **Step 5: Formatear y commitear**
 
@@ -1897,7 +2607,7 @@ from datetime import UTC, date, datetime
 
 from boletin_empleos.config import (
     Config,
-    ConfigSeniority,
+    ConfigExperiencia,
     UmbralesLegitimidad,
     Vocabulario,
 )
@@ -1921,7 +2631,7 @@ CFG = Config(
         tecnologias=["python"],
         excluidos=["call center"],
     ),
-    seniority=ConfigSeniority(terminos_excluidos=["senior"]),
+    experiencia=ConfigExperiencia(terminos_excluidos=["senior"]),
     legitimidad=UmbralesLegitimidad(
         min_caracteres_descripcion=10,
         frases_descarte=["inversion inicial"],
@@ -1976,11 +2686,11 @@ def test_evaluar_descarta_por_relevancia():
     assert r.descartadas[0].motivo is MotivoDescarte.RELEVANCIA
 
 
-def test_evaluar_descarta_por_seniority():
+def test_evaluar_descarta_por_experiencia():
     r = evaluar(
         [_oferta("spe:3", "spe", "Senior Desarrollador Backend")], set(), CFG, CONFIANZA, HOY
     )
-    assert r.descartadas[0].motivo is MotivoDescarte.SENIORITY
+    assert r.descartadas[0].motivo is MotivoDescarte.EXPERIENCIA
 
 
 def test_evaluar_descarta_practicas_porque_la_audiencia_son_egresados():
@@ -2104,7 +2814,7 @@ from boletin_empleos.modelos import Decision, Evaluacion, MotivoDescarte, Oferta
 from boletin_empleos.nucleo.deduplicacion import deduplicar
 from boletin_empleos.nucleo.legitimidad import puntuar_legitimidad
 from boletin_empleos.nucleo.relevancia import puntuar_relevancia
-from boletin_empleos.nucleo.seniority import seniority_apropiado
+from boletin_empleos.nucleo.experiencia import experiencia_apropiada
 from boletin_empleos.nucleo.vigencia import esta_vigente
 
 _UMBRAL_LEGITIMIDAD = 0.45
@@ -2128,7 +2838,7 @@ def evaluar(
         "ya_enviadas": 0,
         "duplicadas": 0,
         "descartadas_relevancia": 0,
-        "descartadas_seniority": 0,
+        "descartadas_experiencia": 0,
         "descartadas_vigencia": 0,
         "descartadas_legitimidad": 0,
         "descartadas_practica": 0,
@@ -2145,7 +2855,7 @@ def evaluar(
     descartadas: list[Evaluacion] = []
 
     for oferta in unicas:
-        relevancia = puntuar_relevancia(oferta, cfg.vocabulario)
+        relevancia = puntuar_relevancia(oferta, cfg.vocabulario, cfg.relevancia)
         confianza = confianza_por_fuente.get(oferta.fuente, 0.5)
         legitimidad, notas_legitimidad = puntuar_legitimidad(oferta, confianza, cfg.legitimidad)
 
@@ -2179,12 +2889,12 @@ def evaluar(
             _descartar(MotivoDescarte.ES_PRACTICA, ["es plaza de práctica, no empleo"])
             continue
 
-        apropiado, motivo_seniority = seniority_apropiado(
-            oferta, cfg.seniority, cfg.max_meses_experiencia
+        apropiado, motivo_experiencia = experiencia_apropiada(
+            oferta, cfg.experiencia, cfg.max_meses_experiencia
         )
         if not apropiado:
-            conteos["descartadas_seniority"] += 1
-            _descartar(MotivoDescarte.SENIORITY, [motivo_seniority])
+            conteos["descartadas_experiencia"] += 1
+            _descartar(MotivoDescarte.EXPERIENCIA, [motivo_experiencia])
             continue
 
         vigente, motivo_vigencia = esta_vigente(oferta, hoy, cfg.dias_max_antiguedad)
@@ -2240,6 +2950,7 @@ git commit -m "feat: deduplicación y pipeline de evaluación del núcleo"
 - Consumes: nada del núcleo
 - Produces:
   - `Historial` (Protocol) con `ids_enviados() -> set[str]`, `registrar(ids, fecha) -> None`, `numero_edicion() -> int`
+  - `HistorialIlegible(Exception)`: el archivo existe pero no se puede usar (JSON roto, bytes que no son UTF-8, forma inesperada). La lanza el constructor de `HistorialJSON`; nunca se trata como historial vacío
   - `HistorialJSON(ruta: Path)`
 
 - [ ] **Step 1: Escribir el test que falla**
@@ -2248,6 +2959,10 @@ git commit -m "feat: deduplicación y pipeline de evaluación del núcleo"
 # tests/test_almacenamiento.py
 from datetime import date
 
+import pytest
+
+from boletin_empleos.almacenamiento import json_repo
+from boletin_empleos.almacenamiento.base import HistorialIlegible
 from boletin_empleos.almacenamiento.json_repo import HistorialJSON
 
 
@@ -2288,10 +3003,79 @@ def test_el_archivo_es_json_legible_y_ordenado(tmp_path):
     assert datos["ediciones"][0]["ids"] == ["spe:1", "spe:2"], "ordenado para diffs limpios en git"
 
 
-def test_tolera_un_archivo_corrupto(tmp_path):
+def test_un_archivo_corrupto_aborta_sin_tocar_el_original(tmp_path):
+    # Partir de cero reenviaría todo lo ya enviado y el siguiente registrar
+    # sobrescribiría el original (spec §15.4).
     ruta = tmp_path / "historial.json"
     ruta.write_text("{ esto no es json", encoding="utf-8")
-    assert HistorialJSON(ruta).ids_enviados() == set()
+
+    with pytest.raises(HistorialIlegible):
+        HistorialJSON(ruta)
+    assert ruta.read_text("utf-8") == "{ esto no es json", "el original no se toca"
+
+
+@pytest.mark.parametrize(
+    "contenido",
+    [
+        b"[]",
+        b"null",
+        b"42",
+        b"{}",
+        b'{"ediciones": null}',
+        b'{"ediciones": [null]}',
+        b'{"ediciones": [{"ids": null}]}',
+        b'{"ediciones": [{"ids": "spe:12"}]}',
+        b'{"ediciones": [{"ids": [1, 2]}]}',
+        b'{"ediciones": [{"ids": ["magneto:dise\xf1o"]}]}',
+    ],
+    ids=[
+        "raiz_lista",
+        "raiz_null",
+        "raiz_numero",
+        "sin_ediciones",
+        "ediciones_null",
+        "edicion_null",
+        "ids_null",
+        "ids_cadena_suelta",
+        "ids_enteros",
+        "bytes_latin1",
+    ],
+)
+def test_forma_o_codificacion_invalida_aborta_sin_tocar_el_original(tmp_path, contenido):
+    # Un "ids" como cadena se iteraría letra a letra y uno con enteros nunca
+    # coincidiría con los ids reales: las ofertas se reenviarían sin aviso.
+    ruta = tmp_path / "historial.json"
+    ruta.write_bytes(contenido)
+
+    with pytest.raises(HistorialIlegible):
+        HistorialJSON(ruta)
+    assert ruta.read_bytes() == contenido
+
+
+def test_un_bom_utf8_no_se_trata_como_corrupcion(tmp_path):
+    # El Bloc de notas de Windows antepone un BOM al guardar en UTF-8.
+    ruta = tmp_path / "historial.json"
+    valido = '{"ediciones": [{"numero": 1, "fecha": "2026-09-22", "ids": ["spe:1"]}]}'
+    ruta.write_bytes(b"\xef\xbb\xbf" + valido.encode("utf-8"))
+
+    h = HistorialJSON(ruta)
+    assert h.ids_enviados() == {"spe:1"}
+    assert h.numero_edicion() == 2
+
+
+def test_una_escritura_fallida_conserva_el_historial_anterior(tmp_path, monkeypatch):
+    ruta = tmp_path / "historial.json"
+    HistorialJSON(ruta).registrar({"spe:1"}, date(2026, 9, 22))
+    assert [p.name for p in tmp_path.iterdir()] == ["historial.json"], "no quedan temporales"
+    antes = ruta.read_bytes()
+
+    def reemplazo_que_falla(*_args):
+        raise OSError("job cancelado a mitad de la escritura")
+
+    monkeypatch.setattr(json_repo.os, "replace", reemplazo_que_falla)
+    with pytest.raises(OSError):
+        HistorialJSON(ruta).registrar({"spe:2"}, date(2026, 10, 6))
+    assert ruta.read_bytes() == antes, "la escritura es atómica: nunca queda un archivo a medias"
 ```
 
 - [ ] **Step 2: Ejecutar y verificar que falla**
@@ -2303,9 +3087,9 @@ Expected: FAIL con `ModuleNotFoundError`
 
 ```python
 # src/boletin_empleos/almacenamiento/__init__.py
-from boletin_empleos.almacenamiento.base import Historial
+from boletin_empleos.almacenamiento.base import Historial, HistorialIlegible
 
-__all__ = ["Historial"]
+__all__ = ["Historial", "HistorialIlegible"]
 ```
 
 ```python
@@ -2314,6 +3098,14 @@ __all__ = ["Historial"]
 
 from datetime import date
 from typing import Protocol
+
+
+class HistorialIlegible(Exception):
+    """El historial existe pero no se puede usar: corrupto, mal codificado o con otra forma.
+
+    Nunca se trata como historial vacío: eso reenviaría todas las ofertas ya enviadas
+    (spec §15.4). El orquestador no la captura: la ejecución falla y no se commitea nada.
+    """
 
 
 class Historial(Protocol):
@@ -2338,14 +3130,32 @@ No se usa la caché de GitHub Actions: se borra a los 7 días sin uso, lo que la
 vuelve inservible para un ciclo quincenal (spec §11).
 
 Se escribe ordenado y con indentación para que los diffs en git sean legibles.
+
+Un archivo que existe pero no se puede usar (JSON roto, bytes que no son UTF-8,
+marcadores de conflicto de merge, forma inesperada) lanza HistorialIlegible y no
+se toca. Partir de cero reenviaría todas las ofertas ya enviadas (spec §15.4) y el
+siguiente registrar sobrescribiría el original; una ejecución fallida en Actions
+es visible y no commitea nada (spec §12: degradación visible, nunca silenciosa).
 """
 
 import json
-import logging
+import os
 from datetime import date
 from pathlib import Path
 
-_log = logging.getLogger(__name__)
+from boletin_empleos.almacenamiento.base import HistorialIlegible
+
+
+def _forma_valida(datos: object) -> bool:
+    """{"ediciones": [{"ids": [str, ...], ...}, ...]}. Lo demás no se adivina."""
+    if not isinstance(datos, dict) or not isinstance(datos.get("ediciones"), list):
+        return False
+    return all(
+        isinstance(ed, dict)
+        and isinstance(ed.get("ids"), list)
+        and all(isinstance(i, str) for i in ed["ids"])
+        for ed in datos["ediciones"]
+    )
 
 
 class HistorialJSON:
@@ -2357,35 +3167,52 @@ class HistorialJSON:
         if not self._ruta.exists():
             return {"ediciones": []}
         try:
-            return json.loads(self._ruta.read_text("utf-8"))
-        except (json.JSONDecodeError, OSError) as e:
-            _log.error("historial ilegible en %s (%s); se parte de cero", self._ruta, e)
-            return {"ediciones": []}
+            # utf-8-sig: el BOM que antepone el Bloc de notas no es corrupción.
+            datos = json.loads(self._ruta.read_text("utf-8-sig"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+            raise HistorialIlegible(f"historial ilegible en {self._ruta}: {e}") from e
+        if not _forma_valida(datos):
+            raise HistorialIlegible(
+                f"historial con forma inesperada en {self._ruta}: se esperaba "
+                '{"ediciones": [{"numero": ..., "fecha": ..., "ids": ["..."]}]}'
+            )
+        return datos
 
     def ids_enviados(self) -> set[str]:
-        return {i for ed in self._datos.get("ediciones", []) for i in ed.get("ids", [])}
+        return {i for ed in self._datos["ediciones"] for i in ed["ids"]}
 
     def numero_edicion(self) -> int:
-        return len(self._datos.get("ediciones", [])) + 1
+        return len(self._datos["ediciones"]) + 1
 
     def registrar(self, ids: set[str], fecha: date) -> None:
-        self._datos.setdefault("ediciones", []).append(
+        self._datos["ediciones"].append(
             {
                 "numero": self.numero_edicion(),
                 "fecha": fecha.isoformat(),
                 "ids": sorted(ids),
             }
         )
+        texto = json.dumps(self._datos, ensure_ascii=False, indent=2) + "\n"
         self._ruta.parent.mkdir(parents=True, exist_ok=True)
-        self._ruta.write_text(
-            json.dumps(self._datos, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
+        # Atómica: si el job se cancela a mitad, queda el archivo anterior entero y
+        # no uno truncado. newline="\n" evita CRLF al correr en Windows.
+        temporal = self._ruta.with_name(self._ruta.name + ".tmp")
+        temporal.write_text(texto, encoding="utf-8", newline="\n")
+        os.replace(temporal, self._ruta)
 ```
+
+**Por qué un historial ilegible no se tolera:** partir de cero reenviaría a los egresados todas las
+ofertas ya enviadas (spec §15.4), reiniciaría la numeración y el siguiente `registrar` sobrescribiría
+el original, que el workflow commitearía. Con `HistorialIlegible` la ejecución falla antes de
+consultar las fuentes (la CLI construye el historial primero), Actions la marca en rojo y no se
+commitea nada; el archivo se repara a mano o se recupera la versión anterior con git. Un BOM no
+cuenta como corrupción. La escritura es atómica (`.tmp` + `os.replace`) para que una cancelación del
+job no deje el archivo truncado.
 
 - [ ] **Step 4: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_almacenamiento.py -v`
-Expected: PASS — 5 tests
+Expected: PASS — 17 tests
 
 - [ ] **Step 5: Formatear y commitear**
 
@@ -2402,6 +3229,8 @@ git commit -m "feat: historial de envíos en JSON versionado"
 **Files:**
 - Create: `src/boletin_empleos/verificacion.py`
 - Create: `tests/test_verificacion.py`
+- Modify: `src/boletin_empleos/fuentes/spe.py` — renombrar `_INTERMEDIO_SPE` a `INTERMEDIO_SPE`
+  (pasa a ser público porque la verificación de enlaces necesita la misma cadena TLS)
 
 **Interfaces:**
 - Consumes: `Evaluacion`
@@ -2445,8 +3274,9 @@ def test_separa_enlaces_vivos_de_muertos():
     respx.head("https://ejemplo.co/1").mock(return_value=httpx.Response(200))
     respx.head("https://ejemplo.co/2").mock(return_value=httpx.Response(404))
 
-    vivas, muertas = filtrar_enlaces_vivos([_evaluacion("https://ejemplo.co/1"),
-                                            _evaluacion("https://ejemplo.co/2")])
+    vivas, muertas = filtrar_enlaces_vivos(
+        [_evaluacion("https://ejemplo.co/1"), _evaluacion("https://ejemplo.co/2")]
+    )
     assert [str(e.oferta.url) for e in vivas] == ["https://ejemplo.co/1"]
     assert muertas[0].decision is Decision.DESCARTAR
     assert muertas[0].motivo is MotivoDescarte.ENLACE_MUERTO
@@ -2495,7 +3325,8 @@ import logging
 
 import httpx
 
-from boletin_empleos.http import crear_cliente
+from boletin_empleos.fuentes.spe import INTERMEDIO_SPE
+from boletin_empleos.http import contexto_ssl, crear_cliente
 from boletin_empleos.modelos import Decision, Evaluacion, MotivoDescarte
 
 _log = logging.getLogger(__name__)
@@ -2508,7 +3339,11 @@ def filtrar_enlaces_vivos(
     vivas: list[Evaluacion] = []
     muertas: list[Evaluacion] = []
 
-    with crear_cliente(timeout=15.0) as cliente:
+    # El servidor del SPE omite el intermedio de su cadena TLS: sin él, todos sus
+    # enlaces se darían por muertos y el boletín perdería las ofertas del SPE.
+    # Accept */*: se verifican páginas HTML, no una API JSON.
+    contexto = contexto_ssl([INTERMEDIO_SPE])
+    with crear_cliente(tiempo_limite=15.0, acepta="*/*", verificacion=contexto) as cliente:
         for evaluacion in evaluaciones:
             if _responde(cliente, str(evaluacion.oferta.url)):
                 vivas.append(evaluacion)
@@ -2539,12 +3374,17 @@ def _responde(cliente: httpx.Client, url: str) -> bool:
     return False
 ```
 
-- [ ] **Step 4: Ejecutar y verificar que pasa**
+- [ ] **Step 4: Hacer pública la constante del intermedio del SPE**
 
-Run: `uv run pytest tests/test_verificacion.py -v`
-Expected: PASS — 3 tests
+En `src/boletin_empleos/fuentes/spe.py` renombra `_INTERMEDIO_SPE` a `INTERMEDIO_SPE` en su
+definición y en su uso. Ningún otro cambio en ese archivo.
 
-- [ ] **Step 5: Formatear y commitear**
+- [ ] **Step 5: Ejecutar y verificar que pasa**
+
+Run: `uv run pytest tests/test_verificacion.py tests/test_fuente_spe.py -v`
+Expected: PASS — 3 tests de verificación y toda la suite del SPE en verde
+
+- [ ] **Step 6: Formatear y commitear**
 
 ```bash
 uv run ruff format . && uv run ruff check --fix .
@@ -2734,7 +3574,11 @@ class EnriquecedorAnthropic:
         if not evaluaciones:
             return {}
         entradas = [
-            {"id": e.oferta.id, "titulo": e.oferta.titulo, "descripcion": e.oferta.descripcion[:800]}
+            {
+                "id": e.oferta.id,
+                "titulo": e.oferta.titulo,
+                "descripcion": e.oferta.descripcion[:800],
+            }
             for e in evaluaciones
         ]
         prompt = (
@@ -2807,8 +3651,14 @@ from boletin_empleos.modelos import Decision, Evaluacion, Modalidad, MotivoDesca
 from boletin_empleos.render.renderizador import DatosBoletin, FuenteUsada, renderizar
 
 
-def _evaluacion(titulo: str, modalidad: Modalidad, pais: str | None, decision=Decision.INCLUIR,
-                motivo=None, notas=None) -> Evaluacion:
+def _evaluacion(
+    titulo: str,
+    modalidad: Modalidad,
+    pais: str | None,
+    decision=Decision.INCLUIR,
+    motivo=None,
+    notas=None,
+) -> Evaluacion:
     return Evaluacion(
         oferta=Oferta(
             id=f"x:{titulo}",
@@ -2890,10 +3740,22 @@ def test_declara_las_fuentes_caidas():
 
 def test_el_apendice_muestra_solo_los_descartes_pertinentes():
     descartadas = [
-        _evaluacion("Estafa", Modalidad.REMOTO, "CO", Decision.DESCARTAR,
-                    MotivoDescarte.LEGITIMIDAD, ["pide dinero al aspirante"]),
-        _evaluacion("Contadora", Modalidad.REMOTO, "CO", Decision.DESCARTAR,
-                    MotivoDescarte.RELEVANCIA, ["relevancia 0.10"]),
+        _evaluacion(
+            "Estafa",
+            Modalidad.REMOTO,
+            "CO",
+            Decision.DESCARTAR,
+            MotivoDescarte.LEGITIMIDAD,
+            ["pide dinero al aspirante"],
+        ),
+        _evaluacion(
+            "Contadora",
+            Modalidad.REMOTO,
+            "CO",
+            Decision.DESCARTAR,
+            MotivoDescarte.RELEVANCIA,
+            ["relevancia 0.10"],
+        ),
     ]
     html = renderizar(_datos(descartadas=descartadas))
     assert "pide dinero al aspirante" in html
@@ -3029,14 +3891,14 @@ from pathlib import Path
 from jinja2_mjml import Environment
 from pydantic import BaseModel, Field
 
-from boletin_empleos.modelos import Evaluacion, Modalidad, MotivoDescarte
+from boletin_empleos.modelos import Evaluacion, Modalidad, MotivoDescarte, Oferta
 
 _PLANTILLAS = Path(__file__).parent / "plantillas"
 
 # Solo estos motivos llegan al apéndice del boletín (spec §8.6).
 _MOTIVOS_VISIBLES = {
     MotivoDescarte.LEGITIMIDAD,
-    MotivoDescarte.SENIORITY,
+    MotivoDescarte.EXPERIENCIA,
     MotivoDescarte.VIGENCIA,
     MotivoDescarte.ENLACE_MUERTO,
 }
@@ -3084,7 +3946,13 @@ def _cargador():
 
 
 class _Adornada(BaseModel):
-    oferta: object
+    """Una evaluación con los campos ya calculados que la plantilla necesita.
+
+    `oferta` va tipada como `Oferta` y no como `object`: así pydantic valida de
+    verdad y el editor autocompleta los campos dentro de la plantilla.
+    """
+
+    oferta: Oferta
     resumen: str | None
     salario: str | None
     motivo: str | None
@@ -3136,9 +4004,11 @@ def _agrupar(datos: DatosBoletin) -> list[dict]:
 Run: `uv run pytest tests/test_render.py -v`
 Expected: PASS — 7 tests
 
-Si `jinja2_mjml.Environment` no acepta `loader`, revisa su API con
-`uv run python -c "import jinja2_mjml; help(jinja2_mjml.Environment)"` y ajusta `renderizar()` y
-`_cargador()`. La plantilla y los tests no cambian.
+**API verificada el 9/09/2026, no hace falta investigarla:** `jinja2_mjml.Environment` hereda de
+`jinja2.Environment` y acepta `loader` con la misma firma. La cadena completa
+(`FileSystemLoader` → `get_template(...).render(...)`) se probó end-to-end contra un `.mjml` con
+variables y bucles: devuelve HTML con `<!doctype>`, las variables interpoladas y los enlaces intactos.
+El código de esta tarea funciona tal como está escrito.
 
 - [ ] **Step 6: Formatear y commitear**
 
@@ -3304,9 +4174,7 @@ class EntregaSMTP:
         mensaje["Subject"] = asunto
         mensaje["From"] = self._remitente
         mensaje["To"] = ", ".join(destinatarios)
-        mensaje.set_content(
-            "Este boletín requiere un cliente de correo con soporte HTML."
-        )
+        mensaje.set_content("Este boletín requiere un cliente de correo con soporte HTML.")
         mensaje.add_alternative(html, subtype="html")
 
         try:
@@ -3371,11 +4239,16 @@ solo debe recibir boletines. Queda documentado en el README (Task 16).
 ```python
 # tests/test_cli.py
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
 from boletin_empleos.cli import main
+from boletin_empleos.entrega.consola import EntregaConsola
 from boletin_empleos.modelos import Modalidad, Oferta
+
+# Ruta absoluta: los tests no dependen del directorio desde el que se lance pytest.
+CONFIG = Path(__file__).resolve().parents[1] / "config.toml"
 
 
 class FuenteFalsa:
@@ -3391,10 +4264,12 @@ class FuenteFalsa:
         return self._ofertas
 
 
-def _oferta(id_, titulo="Desarrollador Backend Python"):
+def _oferta(id_, fuente="falsa", titulo="Desarrollador Backend Python"):
+    # `fuente` debe coincidir con el nombre de la FuenteFalsa que la aporta: el pipeline
+    # busca la confianza base por ese nombre y, si no la encuentra, usa un valor por defecto.
     return Oferta(
         id=id_,
-        fuente="falsa",
+        fuente=fuente,
         titulo=titulo,
         empresa="Acme S.A.S.",
         ubicacion="Armenia, Quindío",
@@ -3407,59 +4282,95 @@ def _oferta(id_, titulo="Desarrollador Backend Python"):
 
 
 @pytest.fixture
-def sin_verificacion(monkeypatch):
-    monkeypatch.setattr(
-        "boletin_empleos.cli.filtrar_enlaces_vivos", lambda evs: (evs, [])
+def aislado(monkeypatch):
+    """Sin red y sin LLM: ni verificación de enlaces ni llamadas a la API de Anthropic.
+
+    Sin el `delenv`, quien corra la suite con ANTHROPIC_API_KEY en su entorno haría
+    llamadas reales, y pagadas, en cada ejecución de los tests.
+    """
+    monkeypatch.setattr("boletin_empleos.cli.filtrar_enlaces_vivos", lambda evs: (evs, []))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
+def _correr(tmp_path, *extra):
+    return main(
+        [
+            *extra,
+            "--config",
+            str(CONFIG),
+            "--salida",
+            str(tmp_path / "salida"),
+            "--historial",
+            str(tmp_path / "h.json"),
+        ]
     )
 
 
-def test_dry_run_escribe_el_boletin_sin_enviar(tmp_path, monkeypatch, sin_verificacion):
+def test_dry_run_escribe_el_boletin_sin_enviar(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
         lambda: [FuenteFalsa("falsa", [_oferta("f:1"), _oferta("f:2")])],
     )
-    salida = tmp_path / "salida"
-    codigo = main(["--dry-run", "--salida", str(salida), "--historial", str(tmp_path / "h.json")])
-
-    assert codigo == 0
-    assert list(salida.glob("*.html")), "el dry-run debe dejar el HTML en disco"
+    assert _correr(tmp_path, "--dry-run") == 0
+    archivos = list((tmp_path / "salida").glob("*.html"))
+    assert len(archivos) == 1, "el dry-run deja exactamente un HTML en disco"
 
 
-def test_una_fuente_caida_no_tumba_el_boletin(tmp_path, monkeypatch, sin_verificacion):
+def test_una_fuente_caida_no_tumba_el_boletin(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("viva", [_oferta("v:1")]), FuenteFalsa("caida", [])],
+        lambda: [FuenteFalsa("viva", [_oferta("v:1", fuente="viva")]), FuenteFalsa("caida", [])],
     )
-    salida = tmp_path / "salida"
-    codigo = main(["--dry-run", "--salida", str(salida), "--historial", str(tmp_path / "h.json")])
-
-    assert codigo == 0
-    html = next(salida.glob("*.html")).read_text("utf-8")
+    assert _correr(tmp_path, "--dry-run") == 0
+    html = next((tmp_path / "salida").glob("*.html")).read_text("utf-8")
     assert "caida" in html and "no respondió" in html
 
 
-def test_sin_ninguna_oferta_no_se_envia_boletin(tmp_path, monkeypatch, sin_verificacion):
-    monkeypatch.setattr(
-        "boletin_empleos.cli.construir_fuentes", lambda: [FuenteFalsa("caida", [])]
-    )
-    salida = tmp_path / "salida"
-    codigo = main(["--dry-run", "--salida", str(salida), "--historial", str(tmp_path / "h.json")])
-
-    assert codigo == 2, "sin fuentes vivas no se envía boletín vacío"
-    assert not list(salida.glob("*.html"))
+def test_sin_ninguna_oferta_no_se_envia_boletin(tmp_path, monkeypatch, aislado):
+    monkeypatch.setattr("boletin_empleos.cli.construir_fuentes", lambda: [FuenteFalsa("caida", [])])
+    assert _correr(tmp_path, "--dry-run") == 2, "sin fuentes vivas no se envía boletín vacío"
+    assert not list((tmp_path / "salida").glob("*.html"))
 
 
-def test_el_historial_evita_repetir_ofertas(tmp_path, monkeypatch, sin_verificacion):
+def test_el_historial_evita_repetir_ofertas(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
         lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
     )
-    salida = tmp_path / "salida"
-    historial = tmp_path / "h.json"
-
-    assert main(["--dry-run", "--salida", str(salida), "--historial", str(historial)]) == 0
+    # Envío real simulado: la entrega escribe en disco en vez de usar SMTP.
+    monkeypatch.setattr(
+        "boletin_empleos.cli._crear_entrega",
+        lambda args, cfg: EntregaConsola(tmp_path / "enviados"),
+    )
+    assert _correr(tmp_path) == 0
     # Segunda corrida: la misma oferta ya fue enviada, no quedan nuevas.
-    assert main(["--dry-run", "--salida", str(salida), "--historial", str(historial)]) == 3
+    assert _correr(tmp_path) == 3
+
+
+def test_dry_run_no_consume_las_ofertas_de_la_edicion_real(tmp_path, monkeypatch, aislado):
+    """Un dry-run es una vista previa.
+
+    Si registrara el historial, las ofertas que la coordinación revisó en la prueba
+    nunca llegarían en la edición real (spec §15, criterio 4).
+    """
+    monkeypatch.setattr(
+        "boletin_empleos.cli.construir_fuentes",
+        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+    )
+    assert _correr(tmp_path, "--dry-run") == 0
+    assert _correr(tmp_path, "--dry-run") == 0, "la segunda vista previa ve la misma oferta"
+    assert not (tmp_path / "h.json").exists()
+
+
+def test_sin_credenciales_smtp_no_envia_ni_registra(tmp_path, monkeypatch, aislado):
+    monkeypatch.setattr(
+        "boletin_empleos.cli.construir_fuentes",
+        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+    )
+    for variable in ("SMTP_HOST", "SMTP_USUARIO", "SMTP_CLAVE"):
+        monkeypatch.delenv(variable, raising=False)
+    assert _correr(tmp_path) == 1
+    assert not (tmp_path / "h.json").exists()
 ```
 
 - [ ] **Step 2: Ejecutar y verificar que falla**
@@ -3478,6 +4389,8 @@ Códigos de salida:
   1  error de configuración o de entrega
   2  ninguna fuente respondió — no se envía boletín vacío (spec §12)
   3  no hay ofertas nuevas para esta edición
+
+`--dry-run` es una vista previa: deja el HTML en --salida y NO modifica el historial.
 """
 
 import argparse
@@ -3487,6 +4400,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from boletin_empleos.almacenamiento import HistorialIlegible
 from boletin_empleos.almacenamiento.json_repo import HistorialJSON
 from boletin_empleos.config import cargar_config
 from boletin_empleos.enriquecimiento import crear_enriquecedor
@@ -3528,7 +4442,13 @@ def main(argv: list[str] | None = None) -> int:
 
 def ejecutar(args) -> int:
     cfg = cargar_config(args.config)
-    historial = HistorialJSON(args.historial)
+    hoy = date.today()
+    try:
+        historial = HistorialJSON(args.historial)
+    except HistorialIlegible as e:
+        # Nunca se sigue con un historial vacío: reenviaría todo lo ya enviado.
+        _log.error("%s", e)
+        return 1
 
     ofertas = []
     fuentes_usadas: list[FuenteUsada] = []
@@ -3556,7 +4476,7 @@ def ejecutar(args) -> int:
         _log.error("ninguna fuente respondió; no se envía un boletín vacío")
         return 2
 
-    resultado = evaluar(ofertas, historial.ids_enviados(), cfg, confianza_por_fuente, date.today())
+    resultado = evaluar(ofertas, historial.ids_enviados(), cfg, confianza_por_fuente, hoy)
     vivas, muertas = filtrar_enlaces_vivos(resultado.incluidas)
     _log.info("conteos: %s | enlaces muertos: %d", resultado.conteos, len(muertas))
 
@@ -3567,7 +4487,7 @@ def ejecutar(args) -> int:
     enriquecedor = crear_enriquecedor(os.environ.get("ANTHROPIC_API_KEY"))
     datos = DatosBoletin(
         numero_edicion=historial.numero_edicion(),
-        fecha=date.today(),
+        fecha=hoy,
         editorial=enriquecedor.editorial(vivas, resultado.conteos),
         incluidas=vivas,
         descartadas=[*resultado.descartadas, *muertas],
@@ -3584,9 +4504,16 @@ def ejecutar(args) -> int:
     if not entrega.enviar(cfg.asunto, html, cfg.destinatarios):
         return 1
 
+    if args.dry_run:
+        # EntregaConsola ya dejó el HTML en --salida. El historial NO se toca: si se
+        # registrara, las ofertas vistas en la prueba se darían por enviadas y la
+        # directora nunca las recibiría en la edición real.
+        _log.info("dry-run: vista previa con %d vacantes; historial sin cambios", len(vivas))
+        return 0
+
     args.salida.mkdir(parents=True, exist_ok=True)
-    (args.salida / f"{date.today().isoformat()}.html").write_text(html, encoding="utf-8")
-    historial.registrar({e.oferta.id for e in vivas}, date.today())
+    (args.salida / f"{hoy.isoformat()}.html").write_text(html, encoding="utf-8")
+    historial.registrar({e.oferta.id for e in vivas}, hoy)
     _log.info("edición %d completada con %d vacantes", datos.numero_edicion, len(vivas))
     return 0
 
@@ -3616,7 +4543,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Ejecutar y verificar que pasa**
 
 Run: `uv run pytest tests/test_cli.py -v`
-Expected: PASS — 4 tests
+Expected: PASS — 6 tests
 
 - [ ] **Step 5: Ejecutar la suite completa**
 
@@ -3661,11 +4588,22 @@ vacantes junior en Colombia". Anota cuántas vacantes sobreviven al filtro. Si s
 - [ ] **Step 2: Abrir el HTML y revisarlo visualmente**
 
 ```bash
-start datos/prueba/*.html
+uv run python -c "
+import pathlib, webbrowser
+archivos = sorted(pathlib.Path('datos/prueba').glob('*.html'))
+if not archivos:
+    raise SystemExit('no se generó ningún boletín en datos/prueba/')
+ultimo = archivos[-1]
+print('abriendo', ultimo, f'({ultimo.stat().st_size} bytes)')
+webbrowser.open(ultimo.resolve().as_uri())
+"
 ```
 
-Verifica: los tres bloques aparecen, los enlaces abren la vacante correcta, el pie cita todas las fuentes
-usadas, y el apéndice no está inundado.
+Se usa `webbrowser` de la librería estándar en vez de `start`: `start` es un builtin de `cmd.exe`
+y no existe en Git Bash, que es donde corren estos comandos.
+
+Verifica: los tres bloques aparecen, los enlaces abren la vacante correcta, el pie cita todas las
+fuentes usadas, y el apéndice no está inundado.
 
 - [ ] **Step 3: Crear el workflow de pruebas**
 
@@ -3738,8 +4676,18 @@ jobs:
             uv run boletin --verboso
           fi
 
+      - name: Publicar la vista previa
+        # En un dry-run el HTML se descarga desde la página de la ejecución en Actions.
+        if: success() && inputs.dry_run == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: vista-previa-boletin
+          path: datos/ediciones/
+
       - name: Guardar el historial y la edición
-        if: success()
+        # Nunca tras un dry-run: no se envió nada, así que no hay nada que registrar.
+        # En el cron, `inputs.dry_run` es nulo y la condición se cumple.
+        if: success() && inputs.dry_run != true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -3767,7 +4715,7 @@ Corporación Universitaria Empresarial Alexander von Humboldt · Armenia, Quind�
 
 ```bash
 uv sync
-uv run boletin --dry-run     # genera sin enviar, deja el HTML en datos/ediciones/
+uv run boletin --dry-run     # vista previa: deja el HTML en datos/ediciones/ y no toca el historial
 uv run boletin               # genera y envía
 uv run pytest                # pruebas
 ```
@@ -3854,8 +4802,9 @@ ensamblaje. Las tareas 2 a 5 son independientes entre sí; las demás dependen d
 paso. Si una fuente cambió su formato desde el 9 de septiembre de 2026, el test lo dirá con claridad —
 que es exactamente lo que queremos.
 
-**Task 5 (Magneto) tiene selectores CSS por confirmar.** Es la única tarea donde el implementador debe
-inspeccionar la fixture y ajustar. Está señalado en sus pasos 1 y 5.
+**Task 5 (Magneto) ya no tiene incógnitas.** Sus selectores se verificaron contra el HTML real el
+9/09/2026, y su ruta rota (`ofertas-empleo-trabajo-remoto`, HTTP 500 en el servidor de Magneto)
+quedó excluida. Ninguna tarea de este plan requiere ya trabajo de investigación.
 
 **No agregues fuentes sin verificar su `robots.txt` y sus términos.** Es la restricción central de este
 diseño, no una recomendación.

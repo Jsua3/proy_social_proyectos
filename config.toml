@@ -1,0 +1,123 @@
+# Configuración del boletín de empleos.
+# Se puede ajustar sin tocar código Python.
+
+destinatarios = ["coorproyeccioning@cue.edu.co"]
+remitente = "coorproyeccioning@cue.edu.co"
+asunto = "Boletín de empleos — Ingeniería de Software"
+
+umbral_relevancia = 0.35
+dias_max_antiguedad = 30
+max_meses_experiencia = 60      # 5 años: por encima se considera senior
+excluir_practicas = true        # la audiencia son egresados, no practicantes
+
+[relevancia]
+# Cómo se pondera una coincidencia. Estos números deciden si una oferta supera
+# `umbral_relevancia`, así que viven aquí y no incrustados en Python: afinar el
+# filtro no debe exigir saber programar.
+peso_titulo = 0.7           # una coincidencia en el título vale mucho más
+peso_descripcion = 0.3      # que una en la descripción
+saturacion_base = 0.6       # lo que aporta la PRIMERA coincidencia
+saturacion_incremento = 0.2 # lo que aporta cada coincidencia adicional
+
+[vocabulario]
+cargos = [
+  "desarrollador", "developer", "programador", "ingeniero de software",
+  "ingeniero de sistemas", "analista de sistemas", "analista de desarrollo",
+  # Formas femeninas de los cargos compuestos: la flexión automática solo alcanza
+  # al final del término, así que "ingeniero de sistemas" no cubre "ingeniera de
+  # sistemas". Las simples ("desarrollador" -> "desarrolladora") sí se cubren solas.
+  "ingeniera de software", "ingeniera de sistemas", "analista de tecnologia",
+  "backend", "back end", "frontend", "front end", "full stack", "fullstack",
+  "qa", "tester", "automatizacion de pruebas", "devops", "sre",
+  "ingeniero de datos", "data engineer", "desarrollador movil", "android", "ios",
+  "arquitecto de software", "soporte de aplicaciones",
+]
+tecnologias = [
+  "java", "python", "javascript", "typescript", "react", "angular", "vue",
+  "node", ".net", "c#", "php", "spring", "django", "laravel", "flutter",
+  "sql", "postgresql", "mysql", "mongodb", "docker", "kubernetes",
+  "aws", "azure", "git", "api rest", "microservicios",
+  # Variantes pegadas: el emparejamiento exige frontera de palabra, así que
+  # "react" NO casa dentro de "reactjs". Se listan como dato, que es la vía
+  # de ajuste prevista por el diseño.
+  "reactjs", "nodejs", "vuejs", "angularjs", "nestjs", "nextjs",
+]
+# Términos que descalifican aunque haya coincidencias tecnológicas.
+excluidos = [
+  "vendedor", "asesor comercial", "call center", "domiciliario",
+  "auxiliar de bodega", "mesero", "vigilante", "conductor",
+  "operario",
+  # Del primer boletín real (14/09/2026): coincidían con "desarrollador" o
+  # "ingeniero de sistemas" en el título o la descripción, pero son roles
+  # comerciales/de ventas o de mecanizado, no de software.
+  "desarrollador comercial", "desarrollo comercial", "desarrollador de negocios",
+  "business developer", "cnc",
+  # "desarrollador comercial" no cubre "Desarrollador/a comercial": la barra
+  # de género neutro rompe la coincidencia exacta de la frase, y el título
+  # solo ya suma relevancia por el cargo "desarrollador". Se vio de verdad en
+  # la corrida de vista previa de esta misma ronda (14/09/2026).
+  "desarrollador/a comercial",
+]
+
+# Términos que NO admiten sufijo de flexión española, PESE a ser sustantivos de agente.
+#
+# El emparejamiento flexiona (femenino y plural) para que "desarrollador" cubra
+# "Desarrolladora Backend", y decide quién se flexiona por MORFOLOGÍA: solo los
+# sustantivos de agente (-dor, -or, -ero, -ente, -ista...). Esa regla ya deja fuera
+# sola a las tecnologías —"docker", "angular", "android", "tester"— sin necesidad
+# de enumerarlas.
+#
+# Esta lista es solo para los casos en que la morfología acierta pero el resultado
+# colisiona igual, y SOLO surte efecto sobre `cargos` y `tecnologias`: sobre
+# `excluidos` se ignora a propósito, porque ahí negar la flexión abre agujeros en
+# vez de cerrarlos.
+#
+# Hoy está vacía. `conductor` estuvo aquí y hubo que sacarlo: vive en `excluidos`,
+# así que negarle la flexión dejaba pasar "Conductores"/"Conductora con manejo de
+# app Android" —ofertas de repartidor, altísima frecuencia en Colombia— mientras
+# seguía excluyendo el singular. El riesgo que lo justificaba (una oferta de
+# firmware que mencione "conductores eléctricos") es mucho menos frecuente.
+sin_flexion = []
+
+[experiencia]
+# Descartan por exigir un nivel de experiencia demasiado alto.
+# Son datos, no símbolos: coinciden con el texto real de las ofertas.
+#
+# "principal" a secas NO está en la lista a propósito: en español colombiano
+# significa casi siempre "sede principal" o "cajero principal", y descartaría un
+# "Desarrollador - Sede Principal" como si fuera senior. Se usan en su lugar las
+# formas inglesas inequívocas, que son las que aparecen en las fuentes remotas.
+terminos_excluidos = [
+  "senior", "sr", "lead", "lider tecnico", "líder técnico", "arquitecto jefe",
+  "jefe de", "gerente", "director", "head of", "staff engineer",
+  "principal engineer", "principal software", "principal developer",
+  "coordinador de desarrollo",
+  # Plurales ingleses: la regla morfológica es española y no flexiona `-er`,
+  # porque ahí viven `docker`, `tester` y `flutter`. Se cubren como dato.
+  "staff engineers", "principal engineers", "principal developers",
+  # Del primer boletín real (14/09/2026): "sr." pasó a "sr" (la frontera de
+  # palabra ya cubre "Sr" y "Sr." sin el punto, y sin casar dentro de
+  # "Sres."); "principal data" y "experto" se añaden porque "principal
+  # engineer/software/developer" no cubría "Principal Data Engineer" ni
+  # "Desarrollador Experto de Sistemas de Información".
+  "principal data", "experto",
+]
+
+[legitimidad]
+min_caracteres_descripcion = 200
+salario_minimo_legal = 1_623_500          # SMLV Colombia 2026
+salario_maximo_razonable = 25_000_000     # tope para perfil junior/semi-senior
+
+# Descarte inmediato.
+frases_descarte = [
+  "inversion inicial", "inversión inicial", "pago de inscripcion",
+  "pago de inscripción", "debes pagar", "kit de trabajo", "compra tu kit",
+  "pago de tramites", "pago de trámites", "curso obligatorio con costo",
+]
+# Penalización fuerte.
+frases_sospechosas = [
+  "altos ingresos", "ingresos ilimitados", "gana desde casa",
+  "sin experiencia gana", "cupos limitados", "ganancias inmediatas",
+  "independencia financiera", "solo por whatsapp", "escribe al whatsapp",
+]
+dominios_sospechosos = ["bit.ly", "tinyurl.com", "cutt.ly", "acortar.link", "t.me"]

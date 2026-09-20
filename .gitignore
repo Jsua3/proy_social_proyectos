@@ -15,6 +15,7 @@ build/
 .env.*
 !.env.example
 *.pem
+!src/boletin_empleos/certificados/*.pem
 *.key
 credenciales*.json
 
@@ -32,3 +33,10 @@ desktop.ini
 *.log
 *.tmp
 scratch/
+
+# Worktrees aislados y espacio de trabajo de los agentes
+.worktrees/
+.superpowers/
+
+# Salida de las corridas en vista previa
+datos/vista-previa/
