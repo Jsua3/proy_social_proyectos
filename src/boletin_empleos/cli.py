@@ -93,11 +93,11 @@ def ejecutar(args: argparse.Namespace) -> int:
     # secreto SMTP roto en el workflow debe fallar rápido y sin costo, no
     # después de recolectar, verificar enlaces y pagar por enriquecer una
     # edición que de todos modos no se va a poder enviar.
-    entrega = _crear_entrega(args, cfg)
+    hoy = date.today()
+
+    entrega = _crear_entrega(args, cfg, hoy)
     if entrega is None:
         return 1
-
-    hoy = date.today()
     ofertas = []
     fuentes_usadas: list[FuenteUsada] = []
     fuentes_caidas: list[str] = []
@@ -144,32 +144,57 @@ def ejecutar(args: argparse.Namespace) -> int:
         fuentes_usadas=fuentes_usadas,
         fuentes_caidas=fuentes_caidas,
     )
+    url_edicion = _url_edicion(cfg, hoy)
     try:
         html = renderizar(datos)
+        html_correo = (
+            renderizar(
+                datos.model_copy(
+                    update={
+                        "url_edicion": url_edicion,
+                        "tope_vacantes": cfg.sitio.vacantes_en_correo,
+                    }
+                )
+            )
+            if url_edicion
+            else html
+        )
     except Exception as e:  # render no documenta un contrato "nunca lanza"
         _log.error("fallo al renderizar el boletín: %s", e)
         return 1
 
-    if not entrega.enviar(cfg.asunto, html, cfg.destinatarios):
+    # La edición completa se archiva siempre, también en vista previa: es el
+    # archivo que publica el sitio y al que apunta el enlace del correo.
+    args.salida.mkdir(parents=True, exist_ok=True)
+    (args.salida / f"{hoy.isoformat()}.html").write_text(html, encoding="utf-8")
+
+    if not entrega.enviar(cfg.asunto, html_correo, cfg.destinatarios):
         return 1
 
     if args.dry_run:
-        # EntregaConsola ya dejó el HTML en --salida. El historial NO se toca: si se
-        # registrara, las ofertas vistas en la prueba se darían por enviadas y la
-        # directora nunca las recibiría en la edición real.
+        # El historial NO se toca: si se registrara, las ofertas vistas en la prueba
+        # se darían por enviadas y la directora nunca las recibiría en la edición real.
         _log.info("dry-run: vista previa con %d vacantes; historial sin cambios", len(vivas))
         return 0
 
-    args.salida.mkdir(parents=True, exist_ok=True)
-    (args.salida / f"{hoy.isoformat()}.html").write_text(html, encoding="utf-8")
     historial.registrar({e.oferta.id for e in vivas}, hoy)
     _log.info("edición %d completada con %d vacantes", datos.numero_edicion, len(vivas))
     return 0
 
 
-def _crear_entrega(args: argparse.Namespace, cfg: Config) -> EntregaConsola | EntregaSMTP | None:
+def _url_edicion(cfg: Config, hoy: date) -> str | None:
+    """Dónde quedará publicada esta edición. Sin sitio configurado, no hay enlace."""
+    if not cfg.sitio.url_base:
+        return None
+    return f"{cfg.sitio.url_base.rstrip('/')}/ediciones/{hoy.isoformat()}.html"
+
+
+def _crear_entrega(
+    args: argparse.Namespace, cfg: Config, hoy: date
+) -> EntregaConsola | EntregaSMTP | None:
     if args.dry_run:
-        return EntregaConsola(args.salida)
+        # Nombre explícito: en la misma carpeta queda la edición completa del día.
+        return EntregaConsola(args.salida, f"{hoy.isoformat()}-correo.html")
 
     faltantes = [v for v in ("SMTP_HOST", "SMTP_USUARIO", "SMTP_CLAVE") if not os.environ.get(v)]
     if faltantes:

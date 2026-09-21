@@ -164,3 +164,28 @@ def test_r2_3_desarrollador_a_comercial_con_barra_tambien_queda_fuera():
     real como término adicional en `excluidos`."""
     cfg = cargar_config(RAIZ / "config.toml")
     assert puntuar_relevancia(_oferta("Desarrollador/a comercial"), cfg.vocabulario) == 0.0
+
+
+def test_el_config_del_proyecto_apunta_al_sitio_publico():
+    """Sin url_base el correo llevaría el boletín entero y Gmail lo recortaría."""
+    cfg = cargar_config(RAIZ / "config.toml")
+
+    assert cfg.sitio.url_base.startswith("https://")
+    assert cfg.sitio.vacantes_en_correo > 0
+
+
+def test_sin_seccion_sitio_no_hay_enlace_y_el_correo_va_completo(tmp_path):
+    ruta = tmp_path / "config.toml"
+    ruta.write_text(
+        'destinatarios = ["a@b.co"]\n'
+        'remitente = "a@b.co"\n'
+        'asunto = "Boletín"\n'
+        "umbral_relevancia = 0.35\n"
+        "dias_max_antiguedad = 30\n",
+        encoding="utf-8",
+    )
+
+    cfg = cargar_config(ruta)
+
+    assert cfg.sitio.url_base == ""
+    assert cfg.sitio.vacantes_en_correo == 10

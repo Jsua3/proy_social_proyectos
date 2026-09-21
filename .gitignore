@@ -38,5 +38,8 @@ scratch/
 .worktrees/
 .superpowers/
 
-# Salida de las corridas en vista previa
-datos/vista-previa/
+# La vista previa del correo se deja en disco para revisarla, no para archivarla:
+# lo que se publica y se versiona es la edición completa, datos/ediciones/AAAA-MM-DD.html
+datos/ediciones/*-correo.html
+# Sitio generado: se construye en cada corrida
+sitio/

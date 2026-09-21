@@ -50,6 +50,19 @@
       {% endif %}
     {% endfor %}
 
+    {% if url_edicion %}
+    <mj-section background-color="#eef4fb" padding="16px 20px">
+      <mj-column>
+        <mj-text font-size="14px">
+          Esta selección muestra las vacantes más pertinentes de la edición.
+        </mj-text>
+        <mj-text font-size="15px" font-weight="bold">
+          <a href="{{ url_edicion }}" target="_blank" rel="noopener noreferrer" style="color:#0b5fff;text-decoration:underline;">Ver las {{ total_vacantes }} vacantes de esta edición</a>
+        </mj-text>
+      </mj-column>
+    </mj-section>
+    {% endif %}
+
     {% if descartes_detalle or descartes_agregados %}
     <mj-section background-color="#fbf7ec" padding="16px 20px">
       <mj-column>

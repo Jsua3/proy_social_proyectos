@@ -12,10 +12,13 @@ descartó y por qué.
 
 ## Estado: vista previa
 
-La ejecución automática ya corre cada quince días, pero **todavía no envía correo**. Genera el boletín
-y lo deja como archivo descargable al final de la corrida, en *Actions → Boletín de empleos → la última
-corrida → Artifacts*. Se hace así porque las credenciales del correo institucional aún no están
-entregadas.
+La ejecución automática ya corre cada quince días, pero **todavía no envía correo**. Genera el boletín,
+publica la edición en el sitio y la deja además como archivo descargable de la corrida, en *Actions →
+Boletín de empleos → la última corrida → Artifacts*. Se hace así porque las credenciales del correo
+institucional aún no están entregadas.
+
+En el índice del sitio, cada edición dice si fue *enviada a la Coordinación* o si es una *vista previa*.
+Decir lo contrario sería falso: hasta el primer envío real, nadie las ha recibido.
 
 **Para pasar a envío real**, sin tocar una sola línea de código:
 
@@ -29,13 +32,37 @@ Para volver a vista previa, basta con borrar esa variable o ponerla en `false`.
 
 ```bash
 uv sync
-uv run boletin --dry-run     # vista previa: deja el HTML en datos/ediciones/ y no toca el historial
+uv run boletin --dry-run     # vista previa: no envía nada ni toca el historial
 uv run boletin               # genera y envía (exige las variables SMTP_*)
-uv run pytest                # 237 pruebas, sin red
+uv run python -m boletin_empleos.sitio   # arma el sitio en sitio/ a partir de datos/ediciones/
+uv run pytest                # 255 pruebas, sin red
 ```
+
+Una vista previa deja dos archivos en `datos/ediciones/`:
+
+| Archivo | Qué es |
+|---|---|
+| `AAAA-MM-DD.html` | La edición completa, la que se publica en el sitio |
+| `AAAA-MM-DD-correo.html` | Lo que recibiría la directora: las vacantes más pertinentes y el enlace a la edición |
 
 Una corrida completa tarda unos diez minutos: el Servicio Público de Empleo se pagina de a decenas de
 páginas y después se comprueba, uno por uno, que los enlaces sigan vivos.
+
+## El sitio y el correo
+
+El boletín completo ronda los 300 KB y Gmail recorta los mensajes de más de unos 102 KB: la directora
+vería el correo cortado. Por eso se reparte en dos:
+
+- **El correo** lleva las vacantes más pertinentes (`vacantes_en_correo` en `config.toml`, hoy 10) y un
+  enlace a la edición completa. Pesa unas decenas de kilobytes.
+- **El sitio** guarda cada edición entera, con su fecha, en
+  `https://jsua3.github.io/proy_social_proyectos`. Se reconstruye en cada corrida a partir de las
+  ediciones versionadas en `datos/ediciones/`.
+
+Ese archivo fechado es además el rastro que pide el CNA para el seguimiento a la empleabilidad
+(Acuerdo 01 de 2025, Factor 12, Características 39 y 40).
+
+Si se borra `url_base` de `config.toml`, no hay enlace y el correo vuelve a llevar el boletín completo.
 
 ## Fuentes y su base de permiso
 
@@ -104,6 +131,6 @@ Diseño completo: `docs/superpowers/specs/2026-09-09-boletin-empleos-design.md`
 ## Lo que falta
 
 - Generar el boletín desde muestras guardadas, sin red (`--desde`), para demostrarlo sin internet.
-- Bajar el peso del correo: el HTML ronda los 300 KB y Gmail recorta a partir de unos 102 KB.
 - Priorizar el eje cafetero: hoy el boletín trata igual una vacante de Armenia y una de Bogotá.
 - Deduplicación aproximada entre portales, hoy exacta.
+- Mover el repositorio a una cuenta institucional: hoy el sitio vive bajo una cuenta personal.

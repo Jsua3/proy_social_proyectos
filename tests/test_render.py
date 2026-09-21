@@ -263,3 +263,79 @@ def test_r2_7_la_url_del_spe_con_ampersand_en_la_query_sobrevive_intacta():
     arbol = HTMLParser(html)
     enlace_titulo = arbol.css_first('a[href*="detalle_oferta.aspx"]')
     assert enlace_titulo.attributes.get("href") == url_spe
+
+
+# --- Correo corto con enlace a la edición completa -------------------------------
+# El boletín completo pesa unos 300 KB y Gmail recorta los correos de más de unos
+# 102 KB. El correo lleva las vacantes más pertinentes y enlaza a la edición
+# publicada en la web; el archivo completo se conserva allá.
+
+URL_EDICION = "https://jsua3.github.io/proy_social_proyectos/ediciones/2026-09-22.html"
+
+
+def test_el_correo_corto_muestra_solo_el_tope_de_vacantes():
+    html = renderizar(_datos(tope_vacantes=2, url_edicion=URL_EDICION))
+    arbol = HTMLParser(html)
+    assert len([a for a in arbol.css("a") if a.text(strip=True) == "Ver oferta"]) == 2
+
+
+def test_el_correo_corto_enlaza_la_edicion_completa_y_dice_cuantas_hay():
+    html = renderizar(_datos(tope_vacantes=2, url_edicion=URL_EDICION))
+    arbol = HTMLParser(html)
+
+    enlace = next(a for a in arbol.css("a") if a.attributes.get("href") == URL_EDICION)
+    assert "3" in enlace.text(), "el enlace dice cuántas vacantes trae la edición completa"
+
+
+def test_el_correo_corto_no_lleva_el_apendice():
+    """El apéndice es lo que más pesa; en la web sí va completo."""
+    descartadas = [
+        _evaluacion(
+            "Estafa",
+            Modalidad.REMOTO,
+            "CO",
+            Decision.DESCARTAR,
+            MotivoDescarte.LEGITIMIDAD,
+            ["pide dinero al aspirante"],
+        )
+    ]
+    html = renderizar(_datos(tope_vacantes=2, url_edicion=URL_EDICION, descartadas=descartadas))
+
+    assert "Apéndice" not in html
+    assert "pide dinero al aspirante" not in html
+
+
+def test_el_correo_corto_conserva_las_atribuciones():
+    """Remotive y RemoteOK exigen la cita en lo que se distribuye, no solo en la web."""
+    html = renderizar(_datos(tope_vacantes=1, url_edicion=URL_EDICION))
+
+    assert "Servicio Público de Empleo" in html
+    assert "Remote OK" in html
+
+
+def test_el_enlace_a_la_edicion_tambien_abre_en_pestana_nueva():
+    html = renderizar(_datos(tope_vacantes=1, url_edicion=URL_EDICION))
+    arbol = HTMLParser(html)
+
+    hacia_la_edicion = next(a for a in arbol.css("a") if a.attributes.get("href") == URL_EDICION)
+    assert hacia_la_edicion.attributes.get("target") == "_blank"
+    assert "noopener" in (hacia_la_edicion.attributes.get("rel") or "")
+
+
+def test_sin_tope_el_boletin_lleva_todas_las_vacantes_y_su_apendice():
+    """La edición de la web no cambia: es la que se archiva y la que enlaza el correo."""
+    descartadas = [
+        _evaluacion(
+            "Estafa",
+            Modalidad.REMOTO,
+            "CO",
+            Decision.DESCARTAR,
+            MotivoDescarte.LEGITIMIDAD,
+            ["pide dinero al aspirante"],
+        )
+    ]
+    html = renderizar(_datos(descartadas=descartadas))
+    arbol = HTMLParser(html)
+
+    assert len([a for a in arbol.css("a") if a.text(strip=True) == "Ver oferta"]) == 3
+    assert "pide dinero al aspirante" in html
