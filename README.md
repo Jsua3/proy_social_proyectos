@@ -35,7 +35,7 @@ uv sync
 uv run boletin --dry-run     # vista previa: no envía nada ni toca el historial
 uv run boletin               # genera y envía (exige las variables SMTP_*)
 uv run python -m boletin_empleos.sitio   # arma el sitio en sitio/ a partir de datos/ediciones/
-uv run pytest                # 255 pruebas, sin red
+uv run pytest                # 287 pruebas, sin red
 ```
 
 Una vista previa deja dos archivos en `datos/ediciones/`:
@@ -63,6 +63,23 @@ Ese archivo fechado es además el rastro que pide el CNA para el seguimiento a l
 (Acuerdo 01 de 2025, Factor 12, Características 39 y 40).
 
 Si se borra `url_base` de `config.toml`, no hay enlace y el correo vuelve a llevar el boletín completo.
+
+## Prioridad geográfica
+
+La Coordinación está en Armenia, así que el boletín ordena las vacantes por cercanía:
+
+1. **Quindío y eje cafetero** — Quindío, Risaralda y Caldas, en cualquier modalidad.
+2. **Colombia — remoto** — desde Armenia se puede tomar sin mudarse.
+3. **Colombia — presencial e híbrido** — el resto del país.
+4. **Remoto internacional**.
+
+Esto **solo ordena**: ninguna vacante se descarta por estar lejos. Importa sobre todo en el correo,
+que lleva las diez primeras. El vocabulario está en `[geografia]` de `config.toml`; vaciarlo devuelve
+el boletín al trato parejo.
+
+Los nombres de municipios chocan en los dos sentidos —Antioquia tiene su propio Armenia y su propio
+Caldas, y el Quindío tiene un municipio llamado Córdoba—, así que manda el último departamento
+nombrado, que es como el Servicio Público de Empleo escribe la ubicación.
 
 ## Fuentes y su base de permiso
 
@@ -131,6 +148,7 @@ Diseño completo: `docs/superpowers/specs/2026-09-09-boletin-empleos-design.md`
 ## Lo que falta
 
 - Generar el boletín desde muestras guardadas, sin red (`--desde`), para demostrarlo sin internet.
-- Priorizar el eje cafetero: hoy el boletín trata igual una vacante de Armenia y una de Bogotá.
 - Deduplicación aproximada entre portales, hoy exacta.
+- Magneto365 nunca trae salario y marca todo como presencial: ninguna de sus vacantes puede caer en
+  las secciones de remoto.
 - Mover el repositorio a una cuenta institucional: hoy el sitio vive bajo una cuenta personal.

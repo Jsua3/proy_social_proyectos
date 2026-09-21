@@ -41,6 +41,19 @@ class UmbralesLegitimidad(BaseModel):
     dominios_sospechosos: list[str] = Field(default_factory=list)
 
 
+class ConfigGeografia(BaseModel):
+    """Qué es "cerca" para esta institución. Solo ordena; nunca descarta.
+
+    `otros_departamentos` resuelve colisiones reales de nombres: Antioquia tiene
+    un municipio llamado Armenia y otro llamado Caldas. Cuando la ubicación
+    nombra un departamento, ese manda sobre el nombre del municipio.
+    """
+
+    departamentos: list[str] = Field(default_factory=list)
+    municipios: list[str] = Field(default_factory=list)
+    otros_departamentos: list[str] = Field(default_factory=list)
+
+
 class ConfigSitio(BaseModel):
     """El sitio público donde se archiva cada edición completa.
 
@@ -66,6 +79,7 @@ class Config(BaseModel):
     experiencia: ConfigExperiencia = Field(default_factory=ConfigExperiencia)
     legitimidad: UmbralesLegitimidad = Field(default_factory=UmbralesLegitimidad)
     sitio: ConfigSitio = Field(default_factory=ConfigSitio)
+    geografia: ConfigGeografia = Field(default_factory=ConfigGeografia)
 
 
 def cargar_config(ruta: Path) -> Config:

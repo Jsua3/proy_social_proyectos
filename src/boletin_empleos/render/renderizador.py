@@ -138,12 +138,20 @@ def _salario(evaluacion: Evaluacion) -> str | None:
 
 
 def _agrupar(datos: DatosBoletin) -> list[dict]:
-    presencial_co, remoto_co, remoto_global = [], [], []
+    """Ordena por cercanía a Armenia: primero la región, después lo alcanzable.
+
+    Una vacante remota en Colombia se puede tomar desde Armenia; una presencial
+    en Medellín exige mudarse. Por eso el remoto nacional va antes. Cada vacante
+    cae en la primera sección que le corresponde, nunca en dos.
+    """
+    eje, presencial_co, remoto_co, remoto_global = [], [], [], []
     mostradas = datos.incluidas[: datos.tope_vacantes] if datos.tope_vacantes else datos.incluidas
     for evaluacion in mostradas:
         adornada = _con_extras(evaluacion, datos)
         oferta = evaluacion.oferta
-        if oferta.modalidad is not Modalidad.REMOTO:
+        if evaluacion.prioridad_local:
+            eje.append(adornada)
+        elif oferta.modalidad is not Modalidad.REMOTO:
             presencial_co.append(adornada)
         elif oferta.pais == "CO":
             remoto_co.append(adornada)
@@ -151,7 +159,8 @@ def _agrupar(datos: DatosBoletin) -> list[dict]:
             remoto_global.append(adornada)
 
     return [
-        {"titulo": "Colombia — presencial e híbrido", "ofertas": presencial_co},
+        {"titulo": "Quindío y eje cafetero", "ofertas": eje},
         {"titulo": "Colombia — remoto", "ofertas": remoto_co},
+        {"titulo": "Colombia — presencial e híbrido", "ofertas": presencial_co},
         {"titulo": "Remoto internacional", "ofertas": remoto_global},
     ]

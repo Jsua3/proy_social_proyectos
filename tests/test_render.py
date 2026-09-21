@@ -13,6 +13,7 @@ def _evaluacion(
     decision=Decision.INCLUIR,
     motivo=None,
     notas=None,
+    prioridad_local: bool = False,
 ) -> Evaluacion:
     return Evaluacion(
         oferta=Oferta(
@@ -32,6 +33,7 @@ def _evaluacion(
         decision=decision,
         motivo=motivo,
         notas=notas or [],
+        prioridad_local=prioridad_local,
     )
 
 
@@ -339,3 +341,30 @@ def test_sin_tope_el_boletin_lleva_todas_las_vacantes_y_su_apendice():
 
     assert len([a for a in arbol.css("a") if a.text(strip=True) == "Ver oferta"]) == 3
     assert "pide dinero al aspirante" in html
+
+
+# --- Prioridad del eje cafetero -------------------------------------------------
+
+
+def test_las_vacantes_del_eje_cafetero_encabezan_el_boletin():
+    cerca = _evaluacion("Dev Armenia", Modalidad.PRESENCIAL, "CO", prioridad_local=True)
+    html = renderizar(_datos(incluidas=[*_datos().incluidas, cerca]))
+
+    assert "Quindío y eje cafetero" in html
+    assert html.index("Quindío y eje cafetero") < html.index("Colombia — remoto")
+    assert html.index("Quindío y eje cafetero") < html.index("Colombia — presencial")
+
+
+def test_una_vacante_del_eje_aparece_una_sola_vez():
+    """Aunque sea remota y colombiana, no puede salir en dos secciones."""
+    cerca = _evaluacion("Dev Pereira remoto", Modalidad.REMOTO, "CO", prioridad_local=True)
+    html = renderizar(_datos(incluidas=[cerca]))
+
+    assert html.count("Dev Pereira remoto") == 1
+
+
+def test_el_remoto_nacional_va_antes_que_lo_presencial_de_otra_ciudad():
+    """Desde Armenia, una vacante remota es más alcanzable que una en Medellín."""
+    html = renderizar(_datos())
+
+    assert html.index("Colombia — remoto") < html.index("Colombia — presencial")

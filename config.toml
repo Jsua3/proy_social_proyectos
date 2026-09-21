@@ -128,3 +128,35 @@ dominios_sospechosos = ["bit.ly", "tinyurl.com", "cutt.ly", "acortar.link", "t.m
 # los mensajes de más de unos 102 KB.
 url_base = "https://jsua3.github.io/proy_social_proyectos"
 vacantes_en_correo = 10
+
+[geografia]
+# Qué es "cerca" para una institución de Armenia. Esto SOLO ordena el boletín:
+# las vacantes del eje cafetero van primero y nunca se descarta a nadie por
+# estar lejos. Vaciar estas listas devuelve el boletín al trato parejo.
+departamentos = ["quindio", "risaralda", "caldas"]
+
+# Municipios del eje, por si la vacante no nombra el departamento. Tomados de
+# los que el propio SPE reporta con vacantes (consultado el 20/09/2026).
+municipios = [
+  # Quindío
+  "armenia", "calarca", "la tebaida", "montenegro", "circasia", "quimbaya",
+  "filandia", "salento", "pijao", "buenavista",
+  # Risaralda
+  "pereira", "dosquebradas", "santa rosa de cabal", "la virginia", "marsella",
+  "belen de umbria", "quinchia", "apia", "guatica", "santuario",
+  # Caldas
+  "manizales", "villamaria", "chinchina", "la dorada", "riosucio", "anserma",
+  "neira", "supia", "marmato", "viterbo", "salamina", "aguadas", "pensilvania",
+]
+
+# Si la ubicación nombra uno de estos, la vacante es de allá. Hace falta porque
+# los nombres chocan en los dos sentidos: Antioquia tiene su propio Armenia y su
+# propio Caldas, y el Quindío tiene un municipio llamado Córdoba. Manda el
+# último departamento nombrado, que es como el SPE escribe la ubicación.
+otros_departamentos = [
+  "amazonas", "antioquia", "arauca", "atlantico", "bogota", "bolivar", "boyaca",
+  "caqueta", "casanare", "cauca", "cesar", "choco", "cordoba", "cundinamarca",
+  "guainia", "guaviare", "huila", "la guajira", "magdalena", "meta", "narino",
+  "norte de santander", "putumayo", "san andres", "santander", "sucre",
+  "tolima", "valle del cauca", "vaupes", "vichada",
+]

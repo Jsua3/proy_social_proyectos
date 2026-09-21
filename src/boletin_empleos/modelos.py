@@ -66,3 +66,5 @@ class Evaluacion(BaseModel):
     decision: Decision
     motivo: MotivoDescarte | None = None
     notas: list[str] = Field(default_factory=list)
+    # Del eje cafetero. Ordena el boletín; nunca descarta.
+    prioridad_local: bool = False

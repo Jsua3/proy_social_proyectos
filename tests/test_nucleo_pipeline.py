@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 from boletin_empleos.config import (
     Config,
     ConfigExperiencia,
+    ConfigGeografia,
     UmbralesLegitimidad,
     Vocabulario,
 )
@@ -117,3 +118,52 @@ def test_los_conteos_cuadran_con_lo_procesado():
     r = evaluar(ofertas, set(), CFG, CONFIANZA, HOY)
     assert r.conteos["recibidas"] == 3
     assert r.conteos["incluidas"] == len(r.incluidas)
+
+
+# --- Prioridad geográfica -------------------------------------------------------
+
+CFG_GEO = CFG.model_copy(
+    update={
+        "geografia": ConfigGeografia(
+            departamentos=["quindio", "risaralda", "caldas"],
+            municipios=["armenia", "pereira", "manizales"],
+            otros_departamentos=["antioquia", "bogota"],
+        )
+    }
+)
+
+
+def test_las_vacantes_del_eje_cafetero_van_primero_aunque_puntuen_menos():
+    """La Coordinación está en Armenia: un egresado ve antes lo de aquí."""
+    lejos = _oferta(
+        "spe:1",
+        "spe",
+        "Desarrollador Backend Python",  # tres coincidencias en el título
+        ubicacion="BOGOTÁ, D.C., BOGOTÁ, D.C.",
+    )
+    cerca = _oferta("spe:2", "spe", "Desarrollador", ubicacion="ARMENIA, QUINDIO")
+
+    resultado = evaluar([lejos, cerca], set(), CFG_GEO, CONFIANZA, HOY)
+
+    assert [e.oferta.id for e in resultado.incluidas] == ["spe:2", "spe:1"]
+    assert resultado.incluidas[0].prioridad_local is True
+    assert resultado.incluidas[1].prioridad_local is False
+    assert resultado.incluidas[0].puntaje_relevancia < resultado.incluidas[1].puntaje_relevancia
+
+
+def test_entre_vacantes_del_eje_sigue_mandando_la_pertinencia():
+    floja = _oferta("spe:1", "spe", "Analista", ubicacion="Pereira, Risaralda")
+    fuerte = _oferta("spe:2", "spe", "Desarrollador Backend Python", ubicacion="MANIZALES, CALDAS")
+
+    resultado = evaluar([floja, fuerte], set(), CFG_GEO, CONFIANZA, HOY)
+
+    assert [e.oferta.id for e in resultado.incluidas][0] == "spe:2"
+
+
+def test_la_prioridad_geografica_no_descarta_a_nadie():
+    lejos = _oferta("spe:1", "spe", "Desarrollador Backend", ubicacion="MEDELLÍN, ANTIOQUIA")
+
+    resultado = evaluar([lejos], set(), CFG_GEO, CONFIANZA, HOY)
+
+    assert len(resultado.incluidas) == 1, "ordena, no filtra"
+    assert resultado.incluidas[0].prioridad_local is False
