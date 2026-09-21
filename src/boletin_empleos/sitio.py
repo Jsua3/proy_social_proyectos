@@ -117,15 +117,11 @@ def _indice(fechas: list[date], enviadas: set[date], vacantes: dict[date, int]) 
     else:
         lista = '    <p class="aviso">Todavía no hay ediciones publicadas.</p>'
 
+    # La portada va sin párrafo: el título ya dice qué hay, y la explicación del
+    # proceso vive en el pie, donde no estorba.
     cuerpo = f"""  <section class="portada aparece">
     <span class="etiqueta">Boletín quincenal</span>
     <h1>Vacantes de software para nuestros egresados</h1>
-    <p>
-      Cada quince días, un agente recoge ofertas de desarrollo de software en fuentes que
-      autorizan su uso, las filtra por pertinencia para los egresados del programa, prioriza
-      las del eje cafetero y comprueba que el enlace siga vivo. Aquí queda cada edición
-      completa, con su fecha.
-    </p>
   </section>
 
   <section class="seccion aparece">

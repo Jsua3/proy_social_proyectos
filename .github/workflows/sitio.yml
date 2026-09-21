@@ -1,0 +1,56 @@
+name: Publicar sitio
+
+# Republica el sitio SIN volver a consultar los portales: reconstruye el índice y
+# las páginas a partir de las ediciones ya versionadas en datos/ediciones.
+# Es lo que hay que correr tras un cambio de diseño o de texto: tarda menos de un
+# minuto, frente a los cinco de una recolección completa.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/boletin_empleos/sitio.py"
+      - "src/boletin_empleos/render/**"
+      - ".github/workflows/sitio.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --all-extras --dev
+
+      - name: Construir el sitio desde las ediciones versionadas
+        run: uv run python -m boletin_empleos.sitio
+
+      - name: Preparar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Subir el sitio
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: sitio
+
+      - name: Desplegar el sitio
+        id: despliegue
+        uses: actions/deploy-pages@v4
