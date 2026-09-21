@@ -45,6 +45,13 @@ class DatosBoletin(BaseModel):
     conteos: dict[str, int] = Field(default_factory=dict)
     fuentes_usadas: list[FuenteUsada] = Field(default_factory=list)
     fuentes_caidas: list[str] = Field(default_factory=list)
+    # Versión para correo: el boletín completo ronda los 300 KB y Gmail recorta
+    # los mensajes de más de unos 102 KB. Con `url_edicion` el render deja de
+    # incluir el apéndice y añade el enlace a la edición publicada en la web;
+    # con `tope_vacantes` solo muestra las primeras, que el pipeline ya ordenó
+    # de más a menos pertinente.
+    url_edicion: str | None = None
+    tope_vacantes: int | None = None
 
 
 def renderizar(datos: DatosBoletin) -> str:
@@ -55,18 +62,23 @@ def renderizar(datos: DatosBoletin) -> str:
     # en el correo institucional.
     entorno = Environment(loader=_cargador(), autoescape=True)
     plantilla = entorno.get_template("boletin.mjml")
+    # En el correo el apéndice sobra: es lo que más pesa y la edición completa
+    # queda a un clic.
+    es_correo = datos.url_edicion is not None
     return plantilla.render(
         numero_edicion=datos.numero_edicion,
         fecha=datos.fecha.isoformat(),
         editorial=datos.editorial,
         conteos=datos.conteos,
         secciones=_agrupar(datos),
-        descartes_detalle=[
-            _con_extras(e, datos) for e in datos.descartadas if e.motivo in _MOTIVOS_DETALLE
-        ],
-        descartes_agregados=_agregar_descartes(datos.descartadas),
+        descartes_detalle=[]
+        if es_correo
+        else [_con_extras(e, datos) for e in datos.descartadas if e.motivo in _MOTIVOS_DETALLE],
+        descartes_agregados=[] if es_correo else _agregar_descartes(datos.descartadas),
         fuentes_usadas=datos.fuentes_usadas,
         fuentes_caidas=datos.fuentes_caidas,
+        url_edicion=datos.url_edicion,
+        total_vacantes=len(datos.incluidas),
     )
 
 
@@ -127,7 +139,8 @@ def _salario(evaluacion: Evaluacion) -> str | None:
 
 def _agrupar(datos: DatosBoletin) -> list[dict]:
     presencial_co, remoto_co, remoto_global = [], [], []
-    for evaluacion in datos.incluidas:
+    mostradas = datos.incluidas[: datos.tope_vacantes] if datos.tope_vacantes else datos.incluidas
+    for evaluacion in mostradas:
         adornada = _con_extras(evaluacion, datos)
         oferta = evaluacion.oferta
         if oferta.modalidad is not Modalidad.REMOTO:

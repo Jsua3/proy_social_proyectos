@@ -121,3 +121,10 @@ frases_sospechosas = [
   "independencia financiera", "solo por whatsapp", "escribe al whatsapp",
 ]
 dominios_sospechosos = ["bit.ly", "tinyurl.com", "cutt.ly", "acortar.link", "t.me"]
+
+[sitio]
+# Dónde se publica cada edición completa. El correo solo lleva las vacantes más
+# pertinentes y enlaza aquí: el boletín entero ronda los 300 KB y Gmail recorta
+# los mensajes de más de unos 102 KB.
+url_base = "https://jsua3.github.io/proy_social_proyectos"
+vacantes_en_correo = 10

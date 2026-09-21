@@ -56,3 +56,11 @@ def test_smtp_devuelve_false_si_falla(monkeypatch):
 
     entrega = EntregaSMTP("h", 587, "u", "c", "u@cue.edu.co")
     assert entrega.enviar("Boletín", "<html>x</html>", ["dir@cue.edu.co"]) is False
+
+
+def test_consola_escribe_con_el_nombre_que_le_den(tmp_path):
+    """El CLI la nombra por fecha para distinguirla de la edición completa."""
+    entrega = EntregaConsola(tmp_path, "2026-09-20-correo.html")
+
+    assert entrega.enviar("Asunto", "<html>correo</html>", ["a@b.co"]) is True
+    assert (tmp_path / "2026-09-20-correo.html").read_text("utf-8") == "<html>correo</html>"

@@ -1,7 +1,8 @@
 name: Boletín de empleos
 
-# Arranca en VISTA PREVIA: genera el boletín y lo publica como archivo
-# descargable en la corrida, sin enviar correo y sin tocar el historial.
+# Arranca en VISTA PREVIA: genera el boletín, publica la edición en el sitio y la
+# deja como archivo descargable de la corrida, sin enviar correo y sin tocar el
+# historial.
 # Para pasar a envío real, cuando TI entregue las credenciales:
 #   1. Cargar los secretos SMTP_HOST, SMTP_USUARIO y SMTP_CLAVE.
 #   2. Crear la variable ENVIO_REAL con el valor true
@@ -19,11 +20,12 @@ on:
         type: boolean
         default: false
 
-# Necesario para guardar el historial tras un envío real. En vista previa no se
-# commitea nada. Exige además Settings -> Actions -> General -> Workflow
-# permissions -> Read and write permissions.
 permissions:
+  # contents: guardar la edición y el historial en el repositorio.
+  # pages e id-token: publicar el sitio con las ediciones.
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: boletin
@@ -32,9 +34,12 @@ concurrency:
 jobs:
   generar:
     runs-on: ubuntu-latest
-    # Una corrida completa tarda unos 10 minutos: el Servicio Público de Empleo
-    # se pagina de a 83 páginas y después se comprueba cada enlace.
+    # Una corrida completa tarda unos tres minutos: el Servicio Público de Empleo
+    # se pagina de a decenas de páginas y después se comprueba cada enlace.
     timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v4
@@ -60,10 +65,10 @@ jobs:
 
           if [ "$solicitado" = "true" ]; then
             echo "enviar=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Modo envío real: el boletín se manda a los destinatarios de config.toml."
+            echo "::notice::Modo envío real: el correo se manda a los destinatarios de config.toml."
           else
             echo "enviar=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Modo vista previa: el boletín queda como archivo descargable al final de esta corrida. No se envía correo ni se modifica el historial."
+            echo "::notice::Modo vista previa: la edición se publica en el sitio, pero no se envía correo ni se modifica el historial."
           fi
 
       - name: Generar el boletín
@@ -80,7 +85,7 @@ jobs:
           if [ "$ENVIAR" = "true" ]; then
             uv run boletin --verboso
           else
-            uv run boletin --dry-run --verboso --salida datos/vista-previa
+            uv run boletin --dry-run --verboso
           fi
           codigo=$?
           set -e
@@ -93,20 +98,39 @@ jobs:
             *) echo "::error::La corrida falló con código $codigo. Revisa el registro de este paso."; exit "$codigo" ;;
           esac
 
-      - name: Publicar el boletín como archivo descargable
-        if: always() && steps.modo.outputs.enviar != 'true'
+      - name: Publicar la edición como archivo descargable
+        if: always() && steps.generar.outputs.codigo == '0'
         uses: actions/upload-artifact@v4
         with:
           name: boletin-${{ github.run_number }}
-          path: datos/vista-previa/*.html
+          path: datos/ediciones/*.html
           if-no-files-found: ignore
           retention-days: 90
 
-      - name: Guardar el historial y la edición
-        if: steps.modo.outputs.enviar == 'true' && steps.generar.outputs.codigo == '0'
+      - name: Guardar la edición en el repositorio
+        if: steps.generar.outputs.codigo == '0'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add datos/
           git diff --staged --quiet || git commit -m "chore: edición del $(date +%F)"
           git push
+
+      - name: Construir el sitio de ediciones
+        if: steps.generar.outputs.codigo == '0'
+        run: uv run python -m boletin_empleos.sitio
+
+      - name: Preparar GitHub Pages
+        if: steps.generar.outputs.codigo == '0'
+        uses: actions/configure-pages@v5
+
+      - name: Subir el sitio
+        if: steps.generar.outputs.codigo == '0'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: sitio
+
+      - name: Desplegar el sitio
+        id: despliegue
+        if: steps.generar.outputs.codigo == '0'
+        uses: actions/deploy-pages@v4

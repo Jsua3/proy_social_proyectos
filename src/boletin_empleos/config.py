@@ -41,6 +41,18 @@ class UmbralesLegitimidad(BaseModel):
     dominios_sospechosos: list[str] = Field(default_factory=list)
 
 
+class ConfigSitio(BaseModel):
+    """El sitio público donde se archiva cada edición completa.
+
+    El correo solo lleva las vacantes más pertinentes y enlaza allá: el boletín
+    entero ronda los 300 KB y Gmail recorta los mensajes de más de unos 102 KB.
+    Sin `url_base` no hay dónde enlazar y el correo va completo, como antes.
+    """
+
+    url_base: str = ""
+    vacantes_en_correo: int = Field(default=10, gt=0)
+
+
 class Config(BaseModel):
     destinatarios: list[str]
     remitente: str
@@ -53,6 +65,7 @@ class Config(BaseModel):
     vocabulario: Vocabulario = Field(default_factory=Vocabulario)
     experiencia: ConfigExperiencia = Field(default_factory=ConfigExperiencia)
     legitimidad: UmbralesLegitimidad = Field(default_factory=UmbralesLegitimidad)
+    sitio: ConfigSitio = Field(default_factory=ConfigSitio)
 
 
 def cargar_config(ruta: Path) -> Config:
