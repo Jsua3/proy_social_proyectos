@@ -300,3 +300,23 @@ def test_argumento_invalido_sale_con_codigo_1():
     with pytest.raises(SystemExit) as excinfo:
         main(["--flag-que-no-existe"])
     assert excinfo.value.code == 1
+
+
+def test_la_edicion_que_se_publica_es_la_pagina_web_y_el_correo_sigue_siendo_correo(
+    tmp_path, monkeypatch, aislado
+):
+    """Dos piezas distintas: la web puede usar la identidad completa; el correo no."""
+    monkeypatch.setattr(
+        "boletin_empleos.cli.construir_fuentes",
+        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+    )
+    assert _correr(tmp_path, "--dry-run") == 0
+
+    hoy = date.today().isoformat()
+    edicion = (tmp_path / "salida" / f"{hoy}.html").read_text("utf-8")
+    correo = (tmp_path / "salida" / f"{hoy}-correo.html").read_text("utf-8")
+
+    assert "estilo.css" in edicion, "la edición es la página del sitio"
+    assert "logo-humboldt" in edicion
+    assert "estilo.css" not in correo, "el correo no puede depender de una hoja externa"
+    assert "logo-humboldt" in correo, "pero sí lleva el escudo, servido desde el sitio"

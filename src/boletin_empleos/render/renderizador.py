@@ -12,6 +12,7 @@ from jinja2_mjml import Environment
 from pydantic import BaseModel, Field
 
 from boletin_empleos.modelos import Evaluacion, Modalidad, MotivoDescarte, Oferta
+from boletin_empleos.render.formato import en_palabras
 
 _PLANTILLAS = Path(__file__).parent / "plantillas"
 
@@ -20,7 +21,7 @@ _PLANTILLAS = Path(__file__).parent / "plantillas"
 #  - Experiencia, vigencia y enlace muerto: en conteo agregado -> nunca el
 #    título ni las notas de la oferta, para no inundar el apéndice.
 #  - Relevancia y deduplicación: no llegan al apéndice (quedan en el registro).
-_MOTIVOS_DETALLE = {MotivoDescarte.LEGITIMIDAD}
+MOTIVOS_DETALLE = {MotivoDescarte.LEGITIMIDAD}
 
 _ETIQUETAS_AGREGADAS = {
     MotivoDescarte.EXPERIENCIA: "nivel de experiencia",
@@ -52,6 +53,9 @@ class DatosBoletin(BaseModel):
     # de más a menos pertinente.
     url_edicion: str | None = None
     tope_vacantes: int | None = None
+    # El escudo se sirve desde el sitio: en un correo no se puede adjuntar
+    # sin engordarlo, y sin sitio publicado no hay dónde servirlo.
+    url_logo: str | None = None
 
 
 def renderizar(datos: DatosBoletin) -> str:
@@ -67,22 +71,23 @@ def renderizar(datos: DatosBoletin) -> str:
     es_correo = datos.url_edicion is not None
     return plantilla.render(
         numero_edicion=datos.numero_edicion,
-        fecha=datos.fecha.isoformat(),
+        fecha=en_palabras(datos.fecha),
         editorial=datos.editorial,
         conteos=datos.conteos,
-        secciones=_agrupar(datos),
+        secciones=agrupar(datos),
         descartes_detalle=[]
         if es_correo
-        else [_con_extras(e, datos) for e in datos.descartadas if e.motivo in _MOTIVOS_DETALLE],
-        descartes_agregados=[] if es_correo else _agregar_descartes(datos.descartadas),
+        else [con_extras(e, datos) for e in datos.descartadas if e.motivo in MOTIVOS_DETALLE],
+        descartes_agregados=[] if es_correo else agregar_descartes(datos.descartadas),
         fuentes_usadas=datos.fuentes_usadas,
         fuentes_caidas=datos.fuentes_caidas,
         url_edicion=datos.url_edicion,
+        url_logo=datos.url_logo,
         total_vacantes=len(datos.incluidas),
     )
 
 
-def _agregar_descartes(descartadas: list[Evaluacion]) -> list[dict]:
+def agregar_descartes(descartadas: list[Evaluacion]) -> list[dict]:
     """Conteo agregado por motivo (spec §8.6): nunca título ni notas por ítem."""
     conteos_por_motivo: dict[MotivoDescarte, int] = {}
     for evaluacion in descartadas:
@@ -116,7 +121,7 @@ class _Adornada(BaseModel):
     notas: list[str]
 
 
-def _con_extras(evaluacion: Evaluacion, datos: DatosBoletin) -> _Adornada:
+def con_extras(evaluacion: Evaluacion, datos: DatosBoletin) -> _Adornada:
     return _Adornada(
         oferta=evaluacion.oferta,
         resumen=datos.resumenes.get(evaluacion.oferta.id),
@@ -137,7 +142,7 @@ def _salario(evaluacion: Evaluacion) -> str | None:
     return f"desde {valor:,} {moneda}".replace(",", ".")
 
 
-def _agrupar(datos: DatosBoletin) -> list[dict]:
+def agrupar(datos: DatosBoletin) -> list[dict]:
     """Ordena por cercanía a Armenia: primero la región, después lo alcanzable.
 
     Una vacante remota en Colombia se puede tomar desde Armenia; una presencial
@@ -147,7 +152,7 @@ def _agrupar(datos: DatosBoletin) -> list[dict]:
     eje, presencial_co, remoto_co, remoto_global = [], [], [], []
     mostradas = datos.incluidas[: datos.tope_vacantes] if datos.tope_vacantes else datos.incluidas
     for evaluacion in mostradas:
-        adornada = _con_extras(evaluacion, datos)
+        adornada = con_extras(evaluacion, datos)
         oferta = evaluacion.oferta
         if evaluacion.prioridad_local:
             eje.append(adornada)

@@ -1,0 +1,651 @@
+/* Sistema visual del boletín — Corporación Universitaria Empresarial Alexander von Humboldt.
+ *
+ * Colores tomados del logo institucional: azul #143D68 y rojo #BD1822.
+ * El lenguaje de movimiento y materiales sigue el de iOS 26: capas translúcidas
+ * con desenfoque, profundidad por sombra y luz en el borde superior, curvas
+ * continuas, y respuesta inmediata al presionar (nunca al soltar).
+ */
+
+:root {
+  /* Identidad */
+  --azul: #143d68;
+  --azul-hondo: #002e5e;
+  --rojo: #bd1822;
+
+  /* Superficies y tinta (tema claro) */
+  --fondo: #f1f4f9;
+  --fondo-degradado-a: #e8edf5;
+  --fondo-degradado-b: #fbfcfe;
+  --tinta: #101720;
+  --tinta-suave: #4a5663;
+  --vidrio: rgba(255, 255, 255, 0.82);
+  --vidrio-alto: rgba(255, 255, 255, 0.94);
+  --borde-luz: rgba(255, 255, 255, 0.75);
+  --borde: rgba(20, 61, 104, 0.16);
+  --sombra-corta: 0 1px 2px rgba(16, 23, 32, 0.06), 0 4px 12px rgba(16, 23, 32, 0.06);
+  --sombra-larga: 0 2px 6px rgba(16, 23, 32, 0.07), 0 18px 46px rgba(16, 23, 32, 0.12);
+  --realce: rgba(20, 61, 104, 0.06);
+
+  /* Movimiento: la curva de iOS. Sin rebote salvo que el gesto traiga impulso. */
+  --curva: cubic-bezier(0.32, 0.72, 0, 1);
+  --rapido: 180ms;
+  --medio: 320ms;
+
+  /* Tipografía */
+  --texto: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    system-ui, sans-serif;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #070d15;
+    --fondo-degradado-a: #0a1220;
+    --fondo-degradado-b: #050a11;
+    --tinta: #eaf0f8;
+    --tinta-suave: #9aa8ba;
+    --vidrio: rgba(24, 36, 54, 0.62);
+    --vidrio-alto: rgba(30, 44, 66, 0.76);
+    --borde-luz: rgba(255, 255, 255, 0.14);
+    --borde: rgba(255, 255, 255, 0.1);
+    --sombra-corta: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.34);
+    --sombra-larga: 0 2px 8px rgba(0, 0, 0, 0.45), 0 24px 60px rgba(0, 0, 0, 0.55);
+    --realce: rgba(255, 255, 255, 0.06);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--texto);
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--tinta);
+  background: var(--fondo);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* El fondo: dos halos de la identidad, muy diluidos, que dan profundidad sin ruido. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(56rem 38rem at 10% -12%, rgba(20, 61, 104, 0.16), transparent 62%),
+    radial-gradient(42rem 30rem at 95% 2%, rgba(189, 24, 34, 0.09), transparent 64%),
+    linear-gradient(180deg, var(--fondo-degradado-a), var(--fondo-degradado-b));
+}
+
+.envoltura {
+  max-width: 54rem;
+  margin: 0 auto;
+  padding: 0 1.25rem 5rem;
+}
+
+/* ---------- Barra superior: material flotante, el contenido pasa por debajo ---------- */
+
+.barra {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.7rem 1.25rem;
+  background: var(--vidrio);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  border-bottom: 1px solid var(--borde);
+  box-shadow: inset 0 1px 0 var(--borde-luz);
+}
+
+.barra__interior {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  max-width: 54rem;
+  margin: 0 auto;
+}
+
+/* El logo vive en su propia ficha blanca, como un ícono: así se lee igual en
+   tema claro y oscuro sin recortar su fondo. */
+.marca {
+  display: block;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  padding: 5px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--sombra-corta);
+}
+
+.marca img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.barra__texto {
+  display: grid;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.barra__titulo {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.barra__pie {
+  font-size: 0.8rem;
+  color: var(--tinta-suave);
+}
+
+.barra__accion {
+  margin-left: auto;
+}
+
+/* ---------- Botones y enlaces ---------- */
+
+.boton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-decoration: none;
+  color: #fff;
+  background: linear-gradient(180deg, #1b4c80, var(--azul));
+  box-shadow: var(--sombra-corta), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  transition: transform var(--rapido) var(--curva), filter var(--rapido) var(--curva);
+}
+
+.boton--tenue {
+  color: var(--azul);
+  background: var(--vidrio-alto);
+  box-shadow: var(--sombra-corta), inset 0 1px 0 var(--borde-luz);
+}
+
+@media (prefers-color-scheme: dark) {
+  .boton--tenue {
+    color: #cfe0f5;
+  }
+}
+
+/* La respuesta ocurre al presionar, no al soltar. */
+.boton:active {
+  transform: scale(0.96);
+  filter: brightness(0.95);
+}
+
+a {
+  color: var(--azul);
+}
+
+@media (prefers-color-scheme: dark) {
+  a {
+    color: #8fb6e4;
+  }
+}
+
+/* ---------- Portada ---------- */
+
+.portada {
+  padding: 3.2rem 0 1.6rem;
+}
+
+.etiqueta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--rojo);
+  background: rgba(189, 24, 34, 0.1);
+  border: 1px solid rgba(189, 24, 34, 0.2);
+}
+
+.portada h1 {
+  margin: 0.9rem 0 0.4rem;
+  font-size: clamp(2.1rem, 6vw, 3.4rem);
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+  font-weight: 700;
+}
+
+.portada p {
+  margin: 0;
+  max-width: 42rem;
+  color: var(--tinta-suave);
+  font-size: 1.05rem;
+}
+
+/* ---------- Cifras ---------- */
+
+.cifras {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.7rem;
+  margin: 1.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cifra {
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  background: var(--vidrio);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid var(--borde);
+  box-shadow: var(--sombra-corta), inset 0 1px 0 var(--borde-luz);
+}
+
+.cifra__valor {
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.cifra__nombre {
+  font-size: 0.82rem;
+  color: var(--tinta-suave);
+}
+
+/* ---------- Secciones ---------- */
+
+.seccion {
+  margin-top: 2.6rem;
+}
+
+.seccion__titulo {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0 0 0.9rem;
+  font-size: 1.28rem;
+  font-weight: 680;
+  letter-spacing: -0.018em;
+}
+
+.seccion__cuenta {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--tinta-suave);
+  font-variant-numeric: tabular-nums;
+}
+
+.seccion--eje .seccion__titulo::before {
+  content: "";
+  width: 0.55rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--rojo), #8c1018);
+}
+
+/* ---------- Tarjetas de vacante ---------- */
+
+.vacantes {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.vacante {
+  position: relative;
+  padding: 1.05rem 1.15rem;
+  border-radius: 20px;
+  background: var(--vidrio);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid var(--borde);
+  box-shadow: var(--sombra-corta), inset 0 1px 0 var(--borde-luz);
+  transition: transform var(--medio) var(--curva), box-shadow var(--medio) var(--curva),
+    background var(--medio) var(--curva);
+}
+
+@media (hover: hover) {
+  .vacante:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--sombra-larga), inset 0 1px 0 var(--borde-luz);
+    background: var(--vidrio-alto);
+  }
+}
+
+.vacante:active {
+  transform: scale(0.992);
+}
+
+.vacante__titulo {
+  margin: 0;
+  font-size: 1.06rem;
+  font-weight: 640;
+  letter-spacing: -0.012em;
+  line-height: 1.3;
+}
+
+.vacante__titulo a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.vacante__titulo a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.vacante__meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.88rem;
+  color: var(--tinta-suave);
+}
+
+.vacante__resumen {
+  margin: 0.5rem 0 0;
+  font-size: 0.95rem;
+}
+
+.vacante__pie {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+
+.salario {
+  display: inline-flex;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--azul);
+  background: var(--realce);
+  border: 1px solid var(--borde);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-color-scheme: dark) {
+  .salario {
+    color: #b9d3f2;
+  }
+}
+
+/* ---------- Índice de ediciones ---------- */
+
+.ediciones {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1.8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.edicion {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  border-radius: 20px;
+  text-decoration: none;
+  color: inherit;
+  background: var(--vidrio);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid var(--borde);
+  box-shadow: var(--sombra-corta), inset 0 1px 0 var(--borde-luz);
+  transition: transform var(--medio) var(--curva), box-shadow var(--medio) var(--curva),
+    background var(--medio) var(--curva);
+}
+
+@media (hover: hover) {
+  .edicion:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--sombra-larga), inset 0 1px 0 var(--borde-luz);
+    background: var(--vidrio-alto);
+  }
+}
+
+.edicion:active {
+  transform: scale(0.99);
+}
+
+.edicion__fecha {
+  font-size: 1.05rem;
+  font-weight: 640;
+  letter-spacing: -0.012em;
+}
+
+.edicion__detalle {
+  font-size: 0.86rem;
+  color: var(--tinta-suave);
+}
+
+.edicion__flecha {
+  margin-left: auto;
+  color: var(--tinta-suave);
+  transition: transform var(--medio) var(--curva);
+}
+
+@media (hover: hover) {
+  .edicion:hover .edicion__flecha {
+    transform: translateX(3px);
+  }
+}
+
+.insignia {
+  display: inline-flex;
+  padding: 0.16rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+}
+
+.insignia--enviada {
+  color: #0d5c3f;
+  background: rgba(16, 140, 96, 0.14);
+  border-color: rgba(16, 140, 96, 0.26);
+}
+
+.insignia--previa {
+  color: var(--azul);
+  background: var(--realce);
+  border-color: var(--borde);
+}
+
+@media (prefers-color-scheme: dark) {
+  .insignia--enviada {
+    color: #6fe0b4;
+  }
+  .insignia--previa {
+    color: #b9d3f2;
+  }
+}
+
+/* ---------- Apéndice ---------- */
+
+.apendice {
+  margin-top: 2.6rem;
+  border-radius: 20px;
+  background: var(--vidrio);
+  border: 1px solid var(--borde);
+  box-shadow: var(--sombra-corta), inset 0 1px 0 var(--borde-luz);
+  overflow: hidden;
+}
+
+.apendice summary {
+  cursor: pointer;
+  padding: 1rem 1.15rem;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  list-style: none;
+}
+
+.apendice summary::-webkit-details-marker {
+  display: none;
+}
+
+.apendice summary::after {
+  content: "＋";
+  float: right;
+  color: var(--tinta-suave);
+  transition: transform var(--medio) var(--curva);
+}
+
+.apendice[open] summary::after {
+  transform: rotate(45deg);
+}
+
+.apendice__cuerpo {
+  padding: 0 1.15rem 1.15rem;
+  font-size: 0.9rem;
+  color: var(--tinta-suave);
+}
+
+.apendice__cuerpo p {
+  margin: 0.4rem 0;
+}
+
+/* ---------- Pie ---------- */
+
+.pie {
+  margin-top: 3rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--borde);
+  font-size: 0.85rem;
+  color: var(--tinta-suave);
+}
+
+.pie a {
+  color: inherit;
+}
+
+.pie__fuentes {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aviso {
+  margin-top: 0.9rem;
+  padding: 0.75rem 0.95rem;
+  border-radius: 14px;
+  color: var(--rojo);
+  background: rgba(189, 24, 34, 0.08);
+  border: 1px solid rgba(189, 24, 34, 0.2);
+}
+
+/* ---------- Aparición al entrar en pantalla ---------- */
+
+.aparece {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+.aparece--visible {
+  opacity: 1;
+  transform: none;
+  transition: opacity var(--medio) var(--curva), transform var(--medio) var(--curva);
+}
+
+/* ---------- Accesibilidad: tres señales del sistema ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition-duration: 120ms !important;
+  }
+  .aparece {
+    opacity: 1;
+    transform: none;
+  }
+  .vacante:hover,
+  .edicion:hover {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .barra,
+  .cifra,
+  .vacante,
+  .edicion,
+  .apendice {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: Canvas;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --borde: rgba(20, 61, 104, 0.45);
+    --tinta-suave: #2b3644;
+  }
+  .vacante,
+  .edicion,
+  .cifra {
+    background: Canvas;
+  }
+}
+
+:focus-visible {
+  outline: 3px solid var(--rojo);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* La barra empieza casi invisible y se asienta cuando el contenido pasa debajo. */
+.barra {
+  transition: background var(--medio) var(--curva), box-shadow var(--medio) var(--curva),
+    border-color var(--medio) var(--curva);
+  border-bottom-color: transparent;
+}
+
+/* Filete azul y rojo bajo la barra: el mismo gesto del escudo y del correo. */
+.barra::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--azul) 0 78%, var(--rojo) 78% 100%);
+  opacity: 0;
+  transition: opacity var(--medio) var(--curva);
+}
+
+.barra--asentada::after {
+  opacity: 1;
+}
+
+.barra--asentada {
+  border-bottom-color: var(--borde);
+  box-shadow: var(--sombra-corta), inset 0 1px 0 var(--borde-luz);
+}

@@ -79,3 +79,55 @@ def test_r2_6_el_prompt_del_editorial_no_le_pide_al_modelo_que_mienta_sobre_la_v
     assert "quincenal" not in capturado["prompt"].lower()
     assert "últimas dos semanas" not in capturado["prompt"]
     assert "quincena" not in capturado["prompt"].lower()
+
+
+# --- El encargo institucional que enmarca lo que el modelo escribe --------------
+
+
+def test_el_contexto_dice_para_quien_y_para_que_es_el_boletin():
+    from boletin_empleos.enriquecimiento.contexto import CONTEXTO_INSTITUCIONAL
+
+    texto = CONTEXTO_INSTITUCIONAL.lower()
+    for clave in (
+        "proyección social",
+        "egresados",
+        "alexander von humboldt",
+        "quindío",
+        "eje cafetero",
+        "empleabilidad",
+    ):
+        assert clave in texto, f"el encargo debe nombrar «{clave}»"
+
+
+def test_el_editorial_le_pasa_el_encargo_al_modelo():
+    from boletin_empleos.enriquecimiento.anthropic import EnriquecedorAnthropic
+
+    capturado = {}
+
+    def capturar(prompt, max_tokens):
+        capturado["prompt"] = prompt
+        return "editorial generado"
+
+    e = EnriquecedorAnthropic(api_key="clave-falsa")
+    e._pedir = capturar
+    e.editorial([_evaluacion()], {"incluidas": 1})
+
+    assert "Proyección Social" in capturado["prompt"]
+    assert "egresados" in capturado["prompt"]
+
+
+def test_el_resumen_le_prohibe_al_modelo_inventar():
+    """Un resumen inventado se publica como si fuera de la oferta real."""
+    from boletin_empleos.enriquecimiento.anthropic import EnriquecedorAnthropic
+
+    capturado = {}
+
+    def capturar(prompt, max_tokens):
+        capturado["prompt"] = prompt
+        return "{}"
+
+    e = EnriquecedorAnthropic(api_key="clave-falsa")
+    e._pedir = capturar
+    e.resumir([_evaluacion()])
+
+    assert "no inventes" in capturado["prompt"].lower()

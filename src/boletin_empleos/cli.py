@@ -32,6 +32,7 @@ from boletin_empleos.fuentes.remotive import FuenteRemotive
 from boletin_empleos.fuentes.spe import FuenteSPE
 from boletin_empleos.nucleo.pipeline import evaluar
 from boletin_empleos.render.renderizador import DatosBoletin, FuenteUsada, renderizar
+from boletin_empleos.render.web import renderizar_web
 from boletin_empleos.verificacion import filtrar_enlaces_vivos
 
 _log = logging.getLogger("boletin")
@@ -145,19 +146,20 @@ def ejecutar(args: argparse.Namespace) -> int:
         fuentes_caidas=fuentes_caidas,
     )
     url_edicion = _url_edicion(cfg, hoy)
+    url_logo = _url_logo(cfg)
     try:
-        html = renderizar(datos)
-        html_correo = (
-            renderizar(
-                datos.model_copy(
-                    update={
-                        "url_edicion": url_edicion,
-                        "tope_vacantes": cfg.sitio.vacantes_en_correo,
-                    }
-                )
+        # Dos piezas distintas para dos medios distintos: la web puede usar la
+        # identidad completa de la universidad; el correo tiene que sobrevivir a
+        # clientes que apenas entienden tablas.
+        html = renderizar_web(datos)
+        html_correo = renderizar(
+            datos.model_copy(
+                update={
+                    "url_edicion": url_edicion,
+                    "url_logo": url_logo,
+                    "tope_vacantes": cfg.sitio.vacantes_en_correo if url_edicion else None,
+                }
             )
-            if url_edicion
-            else html
         )
     except Exception as e:  # render no documenta un contrato "nunca lanza"
         _log.error("fallo al renderizar el boletín: %s", e)
@@ -187,6 +189,13 @@ def _url_edicion(cfg: Config, hoy: date) -> str | None:
     if not cfg.sitio.url_base:
         return None
     return f"{cfg.sitio.url_base.rstrip('/')}/ediciones/{hoy.isoformat()}.html"
+
+
+def _url_logo(cfg: Config) -> str | None:
+    """El escudo lo sirve el propio sitio; sin sitio, el correo va sin imagen."""
+    if not cfg.sitio.url_base:
+        return None
+    return f"{cfg.sitio.url_base.rstrip('/')}/logo-humboldt.png"
 
 
 def _crear_entrega(

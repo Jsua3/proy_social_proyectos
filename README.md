@@ -35,7 +35,7 @@ uv sync
 uv run boletin --dry-run     # vista previa: no envía nada ni toca el historial
 uv run boletin               # genera y envía (exige las variables SMTP_*)
 uv run python -m boletin_empleos.sitio   # arma el sitio en sitio/ a partir de datos/ediciones/
-uv run pytest                # 287 pruebas, sin red
+uv run pytest                # 304 pruebas, sin red
 ```
 
 Una vista previa deja dos archivos en `datos/ediciones/`:
@@ -63,6 +63,29 @@ Ese archivo fechado es además el rastro que pide el CNA para el seguimiento a l
 (Acuerdo 01 de 2025, Factor 12, Características 39 y 40).
 
 Si se borra `url_base` de `config.toml`, no hay enlace y el correo vuelve a llevar el boletín completo.
+
+## Identidad visual
+
+Los colores salen del escudo de la universidad: azul `#143D68` y rojo `#BD1822`. El escudo, la hoja de
+estilos y el guion de movimiento viven en `src/boletin_empleos/render/estaticos/` y se copian al sitio
+en cada corrida.
+
+Son dos piezas con reglas distintas:
+
+- **La web** (`render/web.py`) usa el lenguaje de iOS: materiales translúcidos con desenfoque,
+  profundidad por sombra y luz en el borde superior, curvas continuas, y respuesta al presionar y no
+  al soltar. Tiene tema claro y oscuro, y obedece las tres señales del sistema: menos movimiento,
+  menos transparencia y más contraste.
+- **El correo** (`render/plantillas/boletin.mjml`) no puede usar nada de eso: los clientes de correo
+  apenas entienden tablas. Lleva el escudo servido desde el sitio, el filete azul y rojo, y tipografía
+  del sistema.
+
+## Qué le decimos al modelo
+
+`enriquecimiento/contexto.py` guarda el encargo institucional que enmarca todo lo que Claude redacta:
+qué es la Proyección Social de esta universidad, a quién sirve el boletín, que se prioriza el eje
+cafetero y que no puede inventar datos. El modelo **no decide qué vacantes entran**: eso lo hace el
+núcleo con reglas auditables.
 
 ## Prioridad geográfica
 
