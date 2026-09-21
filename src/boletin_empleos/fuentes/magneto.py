@@ -24,11 +24,15 @@ _ORIGEN = "https://www.magneto365.com"
 # Rutas canónicas del llms.txt de Magneto, VERIFICADAS el 9/09/2026 (todas HTTP 200).
 # `/co/trabajos/ofertas-empleo-trabajo-remoto` se excluye a propósito: devuelve HTTP 500
 # desde el servidor de Magneto, no por culpa de nuestro agente. Si lo arreglan, se añade.
+# `/co/trabajos/ofertas-empleo-en-armenia` tampoco se puede usar: devuelve HTTP 500
+# desde su servidor, igual que la ruta de trabajo remoto. Comprobado el 20/09/2026.
+# Las vacantes de Armenia llegan por el Servicio Público de Empleo.
 RUTAS_POR_DEFECTO = [
     "/co/trabajos/buscar",
     "/co/trabajos/ofertas-empleo-en-bogota",
     "/co/trabajos/ofertas-empleo-en-medellin",
     "/co/trabajos/ofertas-empleo-en-pereira",
+    "/co/trabajos/ofertas-empleo-en-manizales",
 ]
 
 # Selectores verificados contra el HTML real de Magneto el 9/09/2026: cada vacante es un

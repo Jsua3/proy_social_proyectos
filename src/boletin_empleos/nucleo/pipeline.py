@@ -11,6 +11,7 @@ from boletin_empleos.config import Config
 from boletin_empleos.modelos import Decision, Evaluacion, MotivoDescarte, Oferta
 from boletin_empleos.nucleo.deduplicacion import deduplicar
 from boletin_empleos.nucleo.experiencia import experiencia_apropiada
+from boletin_empleos.nucleo.geografia import es_del_eje_cafetero
 from boletin_empleos.nucleo.legitimidad import puntuar_legitimidad
 from boletin_empleos.nucleo.relevancia import puntuar_relevancia
 from boletin_empleos.nucleo.vigencia import esta_vigente
@@ -113,9 +114,15 @@ def evaluar(
                 puntaje_legitimidad=legitimidad,
                 decision=Decision.INCLUIR,
                 notas=notas_legitimidad,
+                prioridad_local=es_del_eje_cafetero(oferta.ubicacion, cfg.geografia),
             )
         )
 
-    incluidas.sort(key=lambda e: (e.puntaje_relevancia, e.puntaje_legitimidad), reverse=True)
+    # La cercanía manda sobre la pertinencia: el correo solo lleva las primeras y
+    # la Coordinación está en Armenia. Ordenar no descarta a nadie.
+    incluidas.sort(
+        key=lambda e: (e.prioridad_local, e.puntaje_relevancia, e.puntaje_legitimidad),
+        reverse=True,
+    )
     conteos["incluidas"] = len(incluidas)
     return ResultadoEvaluacion(incluidas=incluidas, descartadas=descartadas, conteos=conteos)

@@ -30,11 +30,21 @@ _VERSION_ESPERADA = "2.4.0"
 # Verificado el 9/09/2026. La verificación TLS permanece activa.
 INTERMEDIO_SPE = "geotrust-tls-rsa-ca-g1.pem"
 
-# Estrategia de descarga medida en el spec §7: cubre remoto nacional,
-# el mercado local del Quindío, y ocupaciones de software a nivel nacional.
+# Estrategia de descarga medida en el spec §7: cubre remoto nacional, el mercado
+# del eje cafetero, y ocupaciones de software a nivel nacional.
+#
+# Los tres departamentos del eje se consultan enteros —no solo por cargo— para
+# alcanzar las vacantes locales cuyo título no usa ninguna de las palabras de
+# abajo. Medido el 20/09/2026: Quindío 1.428 vacantes, Risaralda 6.207,
+# Caldas 2.979. Cuesta unos minutos más de paginación por corrida; en un trabajo
+# quincenal de un repositorio público, eso no cuesta nada.
+#
+# El nombre va SIN tilde: la API devuelve cero resultados con "Quindío".
 CONSULTAS_POR_DEFECTO: list[dict[str, str]] = [
     {"teletrabajo": "1"},
     {"departamento": "Quindio"},
+    {"departamento": "Risaralda"},
+    {"departamento": "Caldas"},
     {"cargo": "ingeniero de sistemas"},
     {"cargo": "desarrollador"},
     {"cargo": "programador"},

@@ -6,6 +6,7 @@ import pytest
 from boletin_empleos.config import cargar_config
 from boletin_empleos.modelos import Modalidad, Oferta
 from boletin_empleos.nucleo.experiencia import experiencia_apropiada
+from boletin_empleos.nucleo.geografia import es_del_eje_cafetero
 from boletin_empleos.nucleo.relevancia import puntuar_relevancia
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -189,3 +190,23 @@ def test_sin_seccion_sitio_no_hay_enlace_y_el_correo_va_completo(tmp_path):
 
     assert cfg.sitio.url_base == ""
     assert cfg.sitio.vacantes_en_correo == 10
+
+
+@pytest.mark.parametrize(
+    "ubicacion, esperado",
+    [
+        # Tal como las escribe el SPE, verificado contra su API el 20/09/2026.
+        ("ARMENIA, QUI, QUINDIO", True),
+        ("PEREIRA, RISARALDA", True),
+        ("DOSQUEBRADAS, RISARALDA", True),
+        ("MANIZALES, CALDAS", True),
+        ("CHINCHINÁ, CALDAS", True),
+        ("MEDELLÍN, ANTIOQUIA", False),
+        ("BOGOTÁ, D.C., BOGOTÁ, D.C.", False),
+        ("CALI, VALLE DEL CAUCA", False),
+    ],
+)
+def test_la_geografia_del_proyecto_reconoce_el_eje_cafetero(ubicacion, esperado):
+    cfg = cargar_config(RAIZ / "config.toml")
+
+    assert es_del_eje_cafetero(ubicacion, cfg.geografia) is esperado
