@@ -43,3 +43,9 @@ scratch/
 datos/ediciones/*-correo.html
 # Sitio generado: se construye en cada corrida
 sitio/
+
+# Vista previa local del sitio
+.claude/launch.json
+datos/sitio-local/
+datos/vista/
+datos/historial-vista.json

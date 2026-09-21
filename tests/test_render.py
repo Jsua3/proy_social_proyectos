@@ -234,7 +234,7 @@ def test_r2_7_cada_oferta_tiene_exactamente_un_ver_oferta_a_su_propia_url():
     html = renderizar(_datos(incluidas=[ev1, ev2]))
     arbol = HTMLParser(html)
 
-    enlaces_ver_oferta = [a for a in arbol.css("a") if a.text(strip=True) == "Ver oferta"]
+    enlaces_ver_oferta = [a for a in arbol.css("a") if a.text(strip=True).startswith("Ver oferta")]
     assert len(enlaces_ver_oferta) == 2, "un 'Ver oferta' por cada una de las dos ofertas"
     hrefs = {a.attributes.get("href") for a in enlaces_ver_oferta}
     assert hrefs == {"https://ejemplo.co/1", "https://ejemplo.co/2"}
@@ -278,7 +278,7 @@ URL_EDICION = "https://jsua3.github.io/proy_social_proyectos/ediciones/2026-09-2
 def test_el_correo_corto_muestra_solo_el_tope_de_vacantes():
     html = renderizar(_datos(tope_vacantes=2, url_edicion=URL_EDICION))
     arbol = HTMLParser(html)
-    assert len([a for a in arbol.css("a") if a.text(strip=True) == "Ver oferta"]) == 2
+    assert len([a for a in arbol.css("a") if a.text(strip=True).startswith("Ver oferta")]) == 2
 
 
 def test_el_correo_corto_enlaza_la_edicion_completa_y_dice_cuantas_hay():
@@ -339,7 +339,7 @@ def test_sin_tope_el_boletin_lleva_todas_las_vacantes_y_su_apendice():
     html = renderizar(_datos(descartadas=descartadas))
     arbol = HTMLParser(html)
 
-    assert len([a for a in arbol.css("a") if a.text(strip=True) == "Ver oferta"]) == 3
+    assert len([a for a in arbol.css("a") if a.text(strip=True).startswith("Ver oferta")]) == 3
     assert "pide dinero al aspirante" in html
 
 
@@ -368,3 +368,20 @@ def test_el_remoto_nacional_va_antes_que_lo_presencial_de_otra_ciudad():
     html = renderizar(_datos())
 
     assert html.index("Colombia — remoto") < html.index("Colombia — presencial")
+
+
+def test_el_correo_lleva_el_escudo_cuando_hay_sitio_donde_servirlo():
+    html = renderizar(_datos(url_logo="https://ejemplo.github.io/repo/logo-humboldt.png"))
+    arbol = HTMLParser(html)
+
+    fuentes = [i.attributes.get("src", "") for i in arbol.css("img")]
+    assert any("logo-humboldt" in src for src in fuentes)
+    assert "Alexander von Humboldt" in html
+
+
+def test_sin_sitio_el_correo_no_deja_una_imagen_rota():
+    html = renderizar(_datos())
+    arbol = HTMLParser(html)
+
+    assert not [i for i in arbol.css("img") if "logo" in i.attributes.get("src", "")]
+    assert "Alexander von Humboldt" in html, "el nombre de la institución va siempre"

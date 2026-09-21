@@ -17,26 +17,20 @@ from datetime import date
 from html import escape
 from pathlib import Path
 
+from boletin_empleos.render.formato import en_palabras
+from boletin_empleos.render.web import (
+    ARCHIVOS_ESTATICOS,
+    ESTATICOS,
+    INSTITUCION,
+    UNIDAD,
+    pagina,
+)
+
 _log = logging.getLogger(__name__)
 
 # Solo `AAAA-MM-DD.html` es una edición. En la misma carpeta pueden quedar otros
 # archivos: el dry-run deja además la vista previa del correo.
 _NOMBRE_EDICION = re.compile(r"^(\d{4}-\d{2}-\d{2})\.html$")
-
-_MESES = (
-    "enero",
-    "febrero",
-    "marzo",
-    "abril",
-    "mayo",
-    "junio",
-    "julio",
-    "agosto",
-    "septiembre",
-    "octubre",
-    "noviembre",
-    "diciembre",
-)
 
 
 def construir_sitio(ediciones: Path, destino: Path, historial: Path | None = None) -> list[date]:
@@ -46,11 +40,19 @@ def construir_sitio(ediciones: Path, destino: Path, historial: Path | None = Non
 
     destino = Path(destino)
     (destino / "ediciones").mkdir(parents=True, exist_ok=True)
+
+    vacantes: dict[date, int] = {}
     for fecha in fechas:
         nombre = f"{fecha.isoformat()}.html"
-        shutil.copyfile(Path(ediciones) / nombre, destino / "ediciones" / nombre)
+        origen = Path(ediciones) / nombre
+        shutil.copyfile(origen, destino / "ediciones" / nombre)
+        vacantes[fecha] = _vacantes_en(origen)
 
-    (destino / "index.html").write_text(_indice(fechas, enviadas), encoding="utf-8")
+    # Hoja de estilos, escudo y movimiento: sin ellos la página se ve desnuda.
+    for estatico in ARCHIVOS_ESTATICOS:
+        shutil.copyfile(ESTATICOS / estatico, destino / estatico)
+
+    (destino / "index.html").write_text(_indice(fechas, enviadas, vacantes), encoding="utf-8")
     _log.info("sitio construido en %s con %d ediciones", destino, len(fechas))
     return fechas
 
@@ -83,78 +85,70 @@ def _fechas_enviadas(historial: Path | None) -> set[date]:
         return set()
 
 
-def _en_palabras(fecha: date) -> str:
-    return f"{fecha.day} de {_MESES[fecha.month - 1]} de {fecha.year}"
+def _vacantes_en(archivo: Path) -> int:
+    """Cuántas vacantes trae una edición: un botón «Ver oferta» por vacante."""
+    try:
+        return archivo.read_text("utf-8").count(">Ver oferta</a>")
+    except OSError as e:
+        _log.warning("no se pudo leer %s para contar vacantes (%s)", archivo, e)
+        return 0
 
 
-def _fila(fecha: date, enviada: bool) -> str:
-    estado = "enviada a la Coordinación" if enviada else "vista previa"
+def _tarjeta(fecha: date, enviada: bool, vacantes: int) -> str:
+    estado = "Enviada a la Coordinación" if enviada else "Vista previa"
     clase = "enviada" if enviada else "previa"
+    detalle = f"{vacantes} vacantes" if vacantes else "Edición completa"
     return (
-        f'    <li><a href="ediciones/{fecha.isoformat()}.html">'
-        f"{escape(_en_palabras(fecha))}</a>"
-        f' <span class="estado {clase}">{estado}</span></li>'
+        f'      <li><a class="edicion" href="ediciones/{fecha.isoformat()}.html">\n'
+        f"        <span>\n"
+        f'          <span class="edicion__fecha">{escape(en_palabras(fecha))}</span><br>\n'
+        f'          <span class="edicion__detalle">{detalle}</span>\n'
+        f"        </span>\n"
+        f'        <span class="insignia insignia--{clase}">{estado}</span>\n'
+        f'        <span class="edicion__flecha" aria-hidden="true">›</span>\n'
+        f"      </a></li>"
     )
 
 
-def _indice(fechas: list[date], enviadas: set[date]) -> str:
+def _indice(fechas: list[date], enviadas: set[date], vacantes: dict[date, int]) -> str:
     if fechas:
-        cuerpo = (
-            "  <ul class='ediciones'>\n"
-            + "\n".join(_fila(f, f in enviadas) for f in fechas)
-            + "\n  </ul>"
-        )
+        tarjetas = "\n".join(_tarjeta(f, f in enviadas, vacantes.get(f, 0)) for f in fechas)
+        lista = f'    <ul class="ediciones">\n{tarjetas}\n    </ul>'
     else:
-        cuerpo = "  <p class='vacio'>Todavía no hay ediciones publicadas.</p>"
+        lista = '    <p class="aviso">Todavía no hay ediciones publicadas.</p>'
 
-    return f"""<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Boletín de empleos — Ingeniería de Software</title>
-<style>
-  :root {{ color-scheme: light dark; }}
-  body {{
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    line-height: 1.6;
-    max-width: 44rem;
-    margin: 0 auto;
-    padding: 2rem 1rem 4rem;
-  }}
-  h1 {{ font-size: 1.6rem; margin-bottom: 0.2rem; }}
-  .institucion {{ color: #5a6570; margin-top: 0; }}
-  .ediciones {{ list-style: none; padding: 0; }}
-  .ediciones li {{
-    padding: 0.7rem 0;
-    border-bottom: 1px solid rgba(128, 128, 128, 0.3);
-  }}
-  .estado {{ font-size: 0.85rem; color: #5a6570; }}
-  .estado.previa::before {{ content: "· "; }}
-  .estado.enviada::before {{ content: "· "; }}
-  footer {{ margin-top: 2.5rem; font-size: 0.85rem; color: #5a6570; }}
-</style>
-</head>
-<body>
-  <h1>Boletín de empleos — Ingeniería de Software</h1>
-  <p class="institucion">
-    Proyección Social · Facultad de Ingenierías y Ciencias Básicas<br>
-    Corporación Universitaria Empresarial Alexander von Humboldt · Armenia, Quindío
-  </p>
-  <p>
-    Cada quince días, un agente recoge vacantes de desarrollo de software, las filtra
-    por pertinencia para los egresados del programa y comprueba que el enlace siga
-    vivo. Aquí queda cada edición completa.
-  </p>
-{cuerpo}
-  <footer>
-    Vacantes recogidas del Servicio Público de Empleo, Magneto365, Remotive y Remote OK,
-    fuentes que autorizan expresamente su uso. Cada edición cita a las que aportaron
-    ofertas.
-  </footer>
-</body>
-</html>
-"""
+    cuerpo = f"""  <section class="portada aparece">
+    <span class="etiqueta">Boletín quincenal</span>
+    <h1>Vacantes de software para nuestros egresados</h1>
+    <p>
+      Cada quince días, un agente recoge ofertas de desarrollo de software en fuentes que
+      autorizan su uso, las filtra por pertinencia para los egresados del programa, prioriza
+      las del eje cafetero y comprueba que el enlace siga vivo. Aquí queda cada edición
+      completa, con su fecha.
+    </p>
+  </section>
+
+  <section class="seccion aparece">
+{lista}
+  </section>
+
+  <footer class="pie aparece">
+    <p><strong>{escape(UNIDAD)}</strong><br>{escape(INSTITUCION)} · Armenia, Quindío</p>
+    <p>
+      Vacantes recogidas del Servicio Público de Empleo, Magneto365, Remotive y Remote OK,
+      fuentes que autorizan expresamente su uso. Cada edición cita a las que aportaron ofertas.
+    </p>
+  </footer>"""
+
+    return pagina(
+        titulo="Boletín de empleos — Ingeniería de Software",
+        descripcion=(
+            "Archivo de ediciones del boletín quincenal de empleos para egresados de "
+            "Ingeniería de Software de la Corporación Universitaria Empresarial "
+            "Alexander von Humboldt."
+        ),
+        cuerpo=cuerpo,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

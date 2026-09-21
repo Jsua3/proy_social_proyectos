@@ -59,7 +59,8 @@ def test_distingue_las_ediciones_enviadas_de_las_vistas_previas(tmp_path):
 
     construir_sitio(ediciones, tmp_path / "sitio", historial)
 
-    texto = HTMLParser((tmp_path / "sitio" / "index.html").read_text("utf-8")).text()
+    # Las insignias se escriben capitalizadas; lo que se afirma es el hecho.
+    texto = HTMLParser((tmp_path / "sitio" / "index.html").read_text("utf-8")).text().lower()
     assert "vista previa" in texto
     assert "enviada" in texto
 
@@ -70,9 +71,9 @@ def test_sin_historial_todas_son_vistas_previas(tmp_path):
 
     construir_sitio(ediciones, tmp_path / "sitio", tmp_path / "no-existe.json")
 
-    texto = HTMLParser((tmp_path / "sitio" / "index.html").read_text("utf-8")).text()
+    texto = HTMLParser((tmp_path / "sitio" / "index.html").read_text("utf-8")).text().lower()
     assert "vista previa" in texto
-    assert "enviada" not in texto
+    assert "enviada" not in texto, "sin historial, nadie ha recibido nada"
 
 
 def test_ignora_los_archivos_que_no_son_ediciones(tmp_path):
@@ -125,3 +126,38 @@ def test_el_comando_construye_el_sitio_y_devuelve_cero(tmp_path):
     assert codigo == 0
     assert (tmp_path / "sitio" / "index.html").exists()
     assert (tmp_path / "sitio" / "ediciones" / "2026-09-15.html").exists()
+
+
+def test_el_sitio_lleva_la_identidad_de_la_universidad(tmp_path):
+    _edicion(tmp_path / "ediciones", "2026-09-15")
+
+    construir_sitio(tmp_path / "ediciones", tmp_path / "sitio")
+
+    sitio = tmp_path / "sitio"
+    for estatico in ("estilo.css", "logo-humboldt.png", "movimiento.js"):
+        assert (sitio / estatico).exists(), f"falta {estatico} en el sitio publicado"
+
+    html = (sitio / "index.html").read_text("utf-8")
+    assert 'href="estilo.css"' in html
+    assert "logo-humboldt.png" in html
+    assert "Alexander von Humboldt" in html
+
+
+def test_el_indice_dice_cuantas_vacantes_trae_cada_edicion(tmp_path):
+    """El conteo sale del propio archivo: una edición, un botón por vacante."""
+    cuerpo = "<html>" + ">Ver oferta</a>" * 7 + "</html>"
+    _edicion(tmp_path / "ediciones", "2026-09-15", cuerpo)
+
+    construir_sitio(tmp_path / "ediciones", tmp_path / "sitio")
+
+    texto = HTMLParser((tmp_path / "sitio" / "index.html").read_text("utf-8")).text()
+    assert "7 vacantes" in texto
+
+
+def test_una_edicion_sin_vacantes_no_miente_con_el_conteo(tmp_path):
+    _edicion(tmp_path / "ediciones", "2026-09-15", "<html>sin nada</html>")
+
+    construir_sitio(tmp_path / "ediciones", tmp_path / "sitio")
+
+    texto = HTMLParser((tmp_path / "sitio" / "index.html").read_text("utf-8")).text()
+    assert "0 vacantes" not in texto

@@ -1,48 +1,74 @@
 <mjml>
   <mj-head>
     <mj-title>Boletín de empleos — Ingeniería de Software</mj-title>
+    <mj-preview>{{ conteos.incluidas }} vacantes vigentes para egresados de Ingeniería de Software.</mj-preview>
     <mj-attributes>
-      <mj-all font-family="Helvetica, Arial, sans-serif" />
-      <mj-text font-size="14px" color="#25292e" line-height="1.5" />
+      {# Sin fuentes web: los clientes de correo las bloquean o las ignoran. #}
+      <mj-all font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" />
+      <mj-text font-size="15px" color="#101720" line-height="1.55" />
+      <mj-section padding="0" />
     </mj-attributes>
+    <mj-style>
+      a { color: #143D68; }
+      .enlace-oferta { color: #143D68; text-decoration: underline; }
+    </mj-style>
   </mj-head>
-  <mj-body background-color="#f4f5f7">
-    <mj-section background-color="#0b3d63" padding="24px">
-      <mj-column>
-        <mj-text color="#ffffff" font-size="20px" font-weight="bold">
-          Boletín de empleos — Ingeniería de Software
+
+  {# Azul #143D68 y rojo #BD1822: los colores del escudo de la universidad. #}
+  <mj-body background-color="#edf1f6">
+
+    <mj-section background-color="#ffffff" padding="22px 24px 16px 24px">
+      <mj-column width="72px" vertical-align="middle">
+        {% if url_logo %}
+        <mj-image src="{{ url_logo }}" width="64px" alt="Corporación Universitaria Empresarial Alexander von Humboldt" padding="0" align="left" />
+        {% endif %}
+      </mj-column>
+      <mj-column vertical-align="middle">
+        <mj-text font-size="19px" font-weight="bold" color="#143D68" padding="0 0 2px 0" letter-spacing="-0.3px">
+          Boletín de empleos
         </mj-text>
-        <mj-text color="#cfe0ee" font-size="13px">
-          Edición {{ numero_edicion }} · {{ fecha }} · {{ conteos.incluidas }} vacantes
+        <mj-text font-size="12px" color="#5a6673" padding="0">
+          Proyección Social · Facultad de Ingenierías y Ciencias Básicas
         </mj-text>
       </mj-column>
     </mj-section>
 
-    <mj-section background-color="#ffffff" padding="20px">
+    {# Filete de identidad: azul y rojo, como en el escudo. #}
+    <mj-section padding="0">
+      <mj-column width="78%"><mj-divider border-width="4px" border-color="#143D68" padding="0" /></mj-column>
+      <mj-column width="22%"><mj-divider border-width="4px" border-color="#BD1822" padding="0" /></mj-column>
+    </mj-section>
+
+    <mj-section background-color="#ffffff" padding="20px 24px 4px 24px">
       <mj-column>
-        <mj-text>{{ editorial }}</mj-text>
+        <mj-text font-size="12px" color="#BD1822" font-weight="bold" letter-spacing="0.6px" padding="0 0 6px 0">
+          EDICIÓN {{ numero_edicion }} · {{ fecha }} · {{ conteos.incluidas }} VACANTES
+        </mj-text>
+        <mj-text padding="0">{{ editorial }}</mj-text>
       </mj-column>
     </mj-section>
 
     {% for seccion in secciones %}
       {% if seccion.ofertas %}
-      <mj-section background-color="#ffffff" padding="8px 20px">
+      <mj-section background-color="#ffffff" padding="18px 24px 2px 24px">
         <mj-column>
-          <mj-text font-size="16px" font-weight="bold" color="#0b3d63">{{ seccion.titulo }}</mj-text>
+          <mj-text font-size="16px" font-weight="bold" color="#143D68" padding="0">
+            {% if seccion.titulo.startswith("Quindío") %}<span style="color:#BD1822;">▍</span> {% endif %}{{ seccion.titulo }}
+          </mj-text>
         </mj-column>
       </mj-section>
         {% for ev in seccion.ofertas %}
-        <mj-section background-color="#ffffff" padding="4px 20px 12px 20px">
-          <mj-column>
-            <mj-text font-size="15px" font-weight="bold">
-              <a href="{{ ev.oferta.url }}" target="_blank" rel="noopener noreferrer" style="color:#0b5fff;text-decoration:none;">{{ ev.oferta.titulo }}</a>
+        <mj-section background-color="#ffffff" padding="10px 24px 12px 24px">
+          <mj-column border-left="3px solid #e6ebf2" padding-left="12px">
+            <mj-text font-size="15px" font-weight="bold" padding="0 0 3px 0" line-height="1.35">
+              <a href="{{ ev.oferta.url }}" target="_blank" rel="noopener noreferrer" style="color:#101720;text-decoration:none;">{{ ev.oferta.titulo }}</a>
             </mj-text>
-            <mj-text font-size="13px" color="#5a6570">
+            <mj-text font-size="13px" color="#5a6673" padding="0">
               {{ ev.oferta.empresa or "Empresa no identificada" }}{% if ev.oferta.ubicacion %} · {{ ev.oferta.ubicacion }}{% endif %}{% if ev.salario %} · {{ ev.salario }}{% endif %}{% if ev.oferta.fecha_publicacion %} · publicada {{ ev.oferta.fecha_publicacion }}{% endif %}
             </mj-text>
-            {% if ev.resumen %}<mj-text font-size="13px">{{ ev.resumen }}</mj-text>{% endif %}
-            <mj-text font-size="13px" font-weight="bold">
-              <a href="{{ ev.oferta.url }}" target="_blank" rel="noopener noreferrer" style="color:#0b5fff;text-decoration:underline;">Ver oferta</a>
+            {% if ev.resumen %}<mj-text font-size="13px" padding="6px 0 0 0">{{ ev.resumen }}</mj-text>{% endif %}
+            <mj-text font-size="13px" font-weight="bold" padding="7px 0 0 0">
+              <a href="{{ ev.oferta.url }}" target="_blank" rel="noopener noreferrer" class="enlace-oferta" style="color:#143D68;text-decoration:underline;">Ver oferta →</a>
             </mj-text>
           </mj-column>
         </mj-section>
@@ -51,32 +77,32 @@
     {% endfor %}
 
     {% if url_edicion %}
-    <mj-section background-color="#eef4fb" padding="16px 20px">
+    <mj-section background-color="#ffffff" padding="8px 24px 26px 24px">
       <mj-column>
-        <mj-text font-size="14px">
+        <mj-text font-size="13px" color="#5a6673" padding="0 0 10px 0">
           Esta selección muestra las vacantes más pertinentes de la edición.
         </mj-text>
-        <mj-text font-size="15px" font-weight="bold">
-          <a href="{{ url_edicion }}" target="_blank" rel="noopener noreferrer" style="color:#0b5fff;text-decoration:underline;">Ver las {{ total_vacantes }} vacantes de esta edición</a>
-        </mj-text>
+        <mj-button href="{{ url_edicion }}" background-color="#143D68" color="#ffffff" border-radius="999px" font-size="15px" font-weight="bold" inner-padding="12px 22px" padding="0" align="left" target="_blank" rel="noopener noreferrer">
+          Ver las {{ total_vacantes }} vacantes de esta edición
+        </mj-button>
       </mj-column>
     </mj-section>
     {% endif %}
 
     {% if descartes_detalle or descartes_agregados %}
-    <mj-section background-color="#fbf7ec" padding="16px 20px">
+    <mj-section background-color="#f6f8fb" padding="18px 24px">
       <mj-column>
-        <mj-text font-size="14px" font-weight="bold">Apéndice — ofertas descartadas</mj-text>
-        <mj-text font-size="12px" color="#5a6570">
-          Se listan para que el filtro pueda auditarse. No se descartan en silencio.
+        <mj-text font-size="13px" font-weight="bold" color="#143D68" padding="0 0 4px 0">Qué se descartó y por qué</mj-text>
+        <mj-text font-size="12px" color="#5a6673" padding="0 0 6px 0">
+          Se listan para que el filtro pueda auditarse. Nada se descarta en silencio.
         </mj-text>
         {% for ev in descartes_detalle %}
-        <mj-text font-size="12px" color="#5a6570">
+        <mj-text font-size="12px" color="#5a6673" padding="2px 0">
           <strong>{{ ev.oferta.titulo }}</strong> — {{ ev.motivo }}: {{ ev.notas|join("; ") }}
         </mj-text>
         {% endfor %}
         {% for agregado in descartes_agregados %}
-        <mj-text font-size="12px" color="#5a6570">
+        <mj-text font-size="12px" color="#5a6673" padding="2px 0">
           {{ agregado.conteo }} descartadas por {{ agregado.etiqueta }}.
         </mj-text>
         {% endfor %}
@@ -84,20 +110,20 @@
     </mj-section>
     {% endif %}
 
-    <mj-section background-color="#eef1f4" padding="16px 20px">
+    <mj-section background-color="#143D68" padding="20px 24px">
       <mj-column>
-        <mj-text font-size="12px" color="#5a6570"><strong>Fuentes de esta edición</strong></mj-text>
+        <mj-text font-size="12px" color="#ffffff" font-weight="bold" padding="0 0 6px 0">Fuentes de esta edición</mj-text>
         {% for f in fuentes_usadas %}
-        <mj-text font-size="12px" color="#5a6570">
-          {{ f.atribucion }} <a href="{{ f.url_atribucion }}" target="_blank" rel="noopener noreferrer" style="color:#0b5fff;">{{ f.url_atribucion }}</a>
+        <mj-text font-size="12px" color="#c7d7e8" padding="1px 0">
+          {{ f.atribucion }} <a href="{{ f.url_atribucion }}" target="_blank" rel="noopener noreferrer" style="color:#ffffff;">{{ f.url_atribucion }}</a>
         </mj-text>
         {% endfor %}
         {% if fuentes_caidas %}
-        <mj-text font-size="12px" color="#a04a2a">
+        <mj-text font-size="12px" color="#ffbdc2" padding="6px 0 0 0">
           En esta edición no respondió: {{ fuentes_caidas|join(", ") }}.
         </mj-text>
         {% endif %}
-        <mj-text font-size="11px" color="#8a939c">
+        <mj-text font-size="11px" color="#9ab3cd" padding="10px 0 0 0">
           Proyección Social · Facultad de Ingenierías y Ciencias Básicas ·
           Corporación Universitaria Empresarial Alexander von Humboldt · Armenia, Quindío
         </mj-text>
