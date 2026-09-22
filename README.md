@@ -104,6 +104,11 @@ La Coordinación está en Armenia, así que el boletín ordena las vacantes por 
 3. **Colombia — presencial e híbrido** — el resto del país.
 4. **Remoto internacional**.
 
+En la página de cada edición esas cuatro secciones son además un filtro: quien quiera mirar solo lo
+del eje, solo lo remoto o justamente lo de afuera, lo consigue de un toque. El filtro queda en la
+dirección, así que `…/2026-09-22.html#internacional` abre la edición ya filtrada y se puede compartir
+así. Sin JavaScript la página muestra todo, como siempre.
+
 Esto **solo ordena**: ninguna vacante se descarta por estar lejos. Importa sobre todo en el correo,
 que lleva las diez primeras. El vocabulario está en `[geografia]` de `config.toml`; vaciarlo devuelve
 el boletín al trato parejo.

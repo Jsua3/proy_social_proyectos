@@ -27,6 +27,9 @@
   --realce: rgba(20, 61, 104, 0.06);
 
   /* Movimiento: la curva de iOS. Sin rebote salvo que el gesto traiga impulso. */
+  /* Alto de la barra superior: lo necesita el filtro para pegarse debajo. */
+  --alto-barra: 64px;
+
   --curva: cubic-bezier(0.32, 0.72, 0, 1);
   --rapido: 180ms;
   --medio: 320ms;
@@ -648,4 +651,65 @@ a {
 .barra--asentada {
   border-bottom-color: var(--borde);
   box-shadow: var(--sombra-corta), inset 0 1px 0 var(--borde-luz);
+}
+
+/* ---------- Filtro por lugar ----------
+ * Va pegado bajo la barra. Material SÓLIDO a propósito: apilar un vidrio sobre
+ * otro destruye la legibilidad, y aquí hay texto pequeño encima de la lista.
+ */
+.filtro {
+  position: sticky;
+  top: var(--alto-barra);
+  z-index: 15;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 1.9rem 0 0.4rem;
+  padding: 0.65rem 0;
+  background: var(--fondo);
+}
+
+.filtro__pastilla {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  padding: 0.42rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--borde);
+  background: var(--vidrio-alto);
+  color: var(--tinta-suave);
+  cursor: pointer;
+  transition: transform var(--rapido) var(--curva), background var(--rapido) var(--curva),
+    color var(--rapido) var(--curva), box-shadow var(--rapido) var(--curva);
+}
+
+@media (hover: hover) {
+  .filtro__pastilla:hover {
+    color: var(--tinta);
+  }
+}
+
+/* La respuesta ocurre al presionar, no al soltar. */
+.filtro__pastilla:active {
+  transform: scale(0.96);
+}
+
+.filtro__pastilla--activa {
+  color: #fff;
+  background: linear-gradient(180deg, #1b4c80, var(--azul));
+  border-color: transparent;
+  box-shadow: var(--sombra-corta), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.filtro__cuenta {
+  margin-left: 0.2rem;
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .filtro__pastilla {
+    background: Canvas;
+  }
 }

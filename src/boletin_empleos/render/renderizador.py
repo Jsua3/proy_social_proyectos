@@ -167,9 +167,15 @@ def agrupar(datos: DatosBoletin) -> list[dict]:
         else:
             remoto_global.append(adornada)
 
+    # La clave identifica la sección para el filtro de la página y para el ancla
+    # de la URL; el título es lo que lee la gente.
     return [
-        {"titulo": "Quindío y eje cafetero", "ofertas": eje},
-        {"titulo": "Colombia — remoto", "ofertas": remoto_co},
-        {"titulo": "Colombia — presencial e híbrido", "ofertas": presencial_co},
-        {"titulo": "Remoto internacional", "ofertas": remoto_global},
+        {"clave": "eje", "titulo": "Quindío y eje cafetero", "ofertas": eje},
+        {"clave": "remoto-co", "titulo": "Colombia — remoto", "ofertas": remoto_co},
+        {
+            "clave": "presencial-co",
+            "titulo": "Colombia — presencial e híbrido",
+            "ofertas": presencial_co,
+        },
+        {"clave": "internacional", "titulo": "Remoto internacional", "ofertas": remoto_global},
     ]

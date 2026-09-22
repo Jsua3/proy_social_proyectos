@@ -142,3 +142,77 @@ def test_la_pagina_dice_de_que_carrera_es():
 
     assert "Ingeniería Industrial" in texto
     assert "Ingeniería de Software" not in texto
+
+
+# --- Filtro por lugar -----------------------------------------------------------
+# Una edición puede traer 644 vacantes y 486 de ellas presenciales en otra ciudad.
+# El egresado que SÍ quiere mirar fuera del eje o fuera del país tiene que poder
+# llegar a esa parte sin recorrer toda la página.
+
+
+def _con_secciones() -> DatosBoletin:
+    """Una edición con vacantes en las cuatro secciones."""
+    remota_co = _evaluacion("Dev remoto CO")
+    remota_co.oferta.modalidad = Modalidad.REMOTO
+    fuera = _evaluacion("Dev internacional")
+    fuera.oferta.modalidad = Modalidad.REMOTO
+    fuera.oferta.pais = "US"
+    return _datos(
+        incluidas=[
+            _evaluacion("Dev Armenia", local=True),
+            remota_co,
+            _evaluacion("Dev Bogota"),
+            fuera,
+        ]
+    )
+
+
+def test_la_edicion_trae_un_filtro_por_lugar():
+    arbol = HTMLParser(renderizar_web(_con_secciones()))
+
+    pastillas = arbol.css("[data-filtro]")
+    assert [p.attributes.get("data-filtro") for p in pastillas] == [
+        "todas",
+        "eje",
+        "remoto-co",
+        "presencial-co",
+        "internacional",
+    ]
+    assert pastillas[0].attributes.get("aria-pressed") == "true", "arranca mostrando todo"
+
+
+def test_cada_pastilla_dice_cuántas_vacantes_hay_detrás():
+    arbol = HTMLParser(renderizar_web(_con_secciones()))
+
+    cuentas = {
+        p.attributes.get("data-filtro"): p.text(strip=True) for p in arbol.css("[data-filtro]")
+    }
+    assert cuentas["todas"].endswith("4")
+    assert cuentas["eje"].endswith("1")
+    assert cuentas["internacional"].endswith("1")
+
+
+def test_las_secciones_quedan_marcadas_para_que_el_filtro_las_encuentre():
+    arbol = HTMLParser(renderizar_web(_con_secciones()))
+
+    assert [s.attributes.get("data-seccion") for s in arbol.css("[data-seccion]")] == [
+        "eje",
+        "remoto-co",
+        "presencial-co",
+        "internacional",
+    ]
+
+
+def test_sin_javascript_se_ve_todo():
+    """El filtro es una comodidad, no un requisito: nada nace escondido."""
+    html = renderizar_web(_con_secciones())
+    arbol = HTMLParser(html)
+
+    assert not [s for s in arbol.css("[data-seccion]") if s.attributes.get("hidden") is not None]
+    assert "Dev internacional" in arbol.text()
+
+
+def test_con_una_sola_seccion_no_se_dibuja_un_filtro_inutil():
+    arbol = HTMLParser(renderizar_web(_datos(incluidas=[_evaluacion("Dev Bogota")])))
+
+    assert not arbol.css("[data-filtro]")

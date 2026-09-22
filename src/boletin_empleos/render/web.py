@@ -78,9 +78,11 @@ def renderizar_web(datos: DatosBoletin) -> str:
     total = len(datos.incluidas)
     del_eje = sum(1 for e in datos.incluidas if e.prioridad_local)
 
+    con_vacantes = [s for s in agrupar(datos) if s["ofertas"]]
     cuerpo = "\n".join(
         [
             _portada(datos, total, del_eje),
+            _filtro(con_vacantes, total),
             _secciones(datos),
             _apendice(datos),
             _pie(datos),
@@ -122,16 +124,44 @@ def _portada(datos: DatosBoletin, total: int, del_eje: int) -> str:
   </section>"""
 
 
+def _filtro(secciones: list[dict], total: int) -> str:
+    """Atajo a la parte de la edición que le interesa a quien lee.
+
+    Una edición puede traer cientos de vacantes y la mayoría presenciales en otra
+    ciudad. Quien sí quiere mirar fuera del eje —o fuera del país— no tiene por
+    qué recorrer la página entera. Con una sola sección no se dibuja: sería un
+    control que no controla nada.
+    """
+    if len(secciones) < 2:
+        return ""
+
+    pastillas = [
+        '      <button class="filtro__pastilla filtro__pastilla--activa" type="button"'
+        ' data-filtro="todas" aria-pressed="true">Todas'
+        f' <span class="filtro__cuenta">{miles(total)}</span></button>'
+    ]
+    pastillas += [
+        f'      <button class="filtro__pastilla" type="button" data-filtro="{s["clave"]}"'
+        f' aria-pressed="false">{escape(s["titulo"])}'
+        f' <span class="filtro__cuenta">{miles(len(s["ofertas"]))}</span></button>'
+        for s in secciones
+    ]
+    botones = "\n".join(pastillas)
+    return f"""  <nav class="filtro aparece" aria-label="Filtrar las vacantes por lugar">
+{botones}
+  </nav>"""
+
+
 def _secciones(datos: DatosBoletin) -> str:
     partes = []
     for seccion in agrupar(datos):
         if not seccion["ofertas"]:
             continue
-        es_eje = seccion["titulo"].startswith("Quindío")
-        clase = "seccion seccion--eje" if es_eje else "seccion"
+        clase = "seccion seccion--eje" if seccion["clave"] == "eje" else "seccion"
         tarjetas = "\n".join(_vacante(a) for a in seccion["ofertas"])
         partes.append(
-            f"""  <section class="{clase} aparece">
+            f"""  <section class="{clase} aparece" id="{seccion["clave"]}" \
+data-seccion="{seccion["clave"]}">
     <h2 class="seccion__titulo">{escape(seccion["titulo"])}
       <span class="seccion__cuenta">{len(seccion["ofertas"])}</span>
     </h2>
