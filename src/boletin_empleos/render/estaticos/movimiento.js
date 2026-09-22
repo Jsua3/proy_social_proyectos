@@ -46,3 +46,56 @@
   alDesplazar();
   window.addEventListener("scroll", alDesplazar, { passive: true });
 })();
+
+// Filtro por lugar. La edición puede traer cientos de vacantes; quien quiere
+// mirar fuera del eje o fuera del país llega de un toque, y el enlace queda en
+// la URL para poder compartirlo.
+(function () {
+  "use strict";
+
+  var pastillas = [].slice.call(document.querySelectorAll("[data-filtro]"));
+  var secciones = [].slice.call(document.querySelectorAll("[data-seccion]"));
+  if (!pastillas.length || !secciones.length) return;
+
+  function aplicar(filtro) {
+    var conocido = filtro === "todas" || secciones.some(function (s) {
+      return s.getAttribute("data-seccion") === filtro;
+    });
+    if (!conocido) filtro = "todas";
+
+    secciones.forEach(function (seccion) {
+      var visible = filtro === "todas" || seccion.getAttribute("data-seccion") === filtro;
+      // `hidden` también la saca del árbol de accesibilidad, no solo de la vista.
+      if (visible) seccion.removeAttribute("hidden");
+      else seccion.setAttribute("hidden", "");
+    });
+
+    pastillas.forEach(function (pastilla) {
+      var activa = pastilla.getAttribute("data-filtro") === filtro;
+      pastilla.classList.toggle("filtro__pastilla--activa", activa);
+      pastilla.setAttribute("aria-pressed", activa ? "true" : "false");
+    });
+
+    return filtro;
+  }
+
+  pastillas.forEach(function (pastilla) {
+    pastilla.addEventListener("click", function () {
+      var filtro = aplicar(pastilla.getAttribute("data-filtro"));
+      // replaceState: cambia la dirección sin ensuciar el historial ni saltar.
+      var destino = filtro === "todas" ? " " : "#" + filtro;
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, "", destino);
+      }
+    });
+  });
+
+  // Se puede llegar directo desde un enlace: .../2026-09-22.html#internacional
+  function desdeLaDireccion() {
+    if (window.location.hash.length > 1) aplicar(window.location.hash.slice(1));
+  }
+  desdeLaDireccion();
+  // Y si la dirección cambia sin recargar —un enlace interno, el botón de
+  // atrás—, el filtro tiene que seguirla igual.
+  window.addEventListener("hashchange", desdeLaDireccion);
+})();
