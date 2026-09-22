@@ -41,6 +41,23 @@ class UmbralesLegitimidad(BaseModel):
     dominios_sospechosos: list[str] = Field(default_factory=list)
 
 
+class ConfigFuentes(BaseModel):
+    """De dónde saca sus vacantes cada carrera.
+
+    `consultas_spe` es común a todas (remoto nacional y los departamentos del eje)
+    y `cargos_spe` es lo propio del programa. Se concatenan: así añadir una carrera
+    no obliga a repetir la estrategia de descarga entera.
+    """
+
+    usar: list[str] = Field(default_factory=lambda: ["spe", "magneto", "remotive", "remoteok"])
+    consultas_spe: list[dict[str, str]] = Field(default_factory=list)
+    cargos_spe: list[str] = Field(default_factory=list)
+    rutas_magneto: list[str] = Field(default_factory=list)
+
+    def consultas(self) -> list[dict[str, str]]:
+        return [*self.consultas_spe, *({"cargo": cargo} for cargo in self.cargos_spe)]
+
+
 class ConfigGeografia(BaseModel):
     """Qué es "cerca" para esta institución. Solo ordena; nunca descarta.
 
@@ -67,6 +84,10 @@ class ConfigSitio(BaseModel):
 
 
 class Config(BaseModel):
+    # Qué carrera es. `clave` nombra carpetas y URLs (datos/<clave>/, /<clave>/);
+    # `programa` es el nombre que leen las personas.
+    clave: str
+    programa: str
     destinatarios: list[str]
     remitente: str
     asunto: str
@@ -80,8 +101,34 @@ class Config(BaseModel):
     legitimidad: UmbralesLegitimidad = Field(default_factory=UmbralesLegitimidad)
     sitio: ConfigSitio = Field(default_factory=ConfigSitio)
     geografia: ConfigGeografia = Field(default_factory=ConfigGeografia)
+    fuentes: ConfigFuentes = Field(default_factory=ConfigFuentes)
 
 
 def cargar_config(ruta: Path) -> Config:
+    """Carga la configuración de una carrera, con lo que herede de la base."""
+    return Config(**_leer(Path(ruta)))
+
+
+def _leer(ruta: Path) -> dict:
     with ruta.open("rb") as f:
-        return Config(**tomllib.load(f))
+        datos = tomllib.load(f)
+
+    # `extiende` apunta a un archivo hermano con lo que comparten todas las
+    # carreras: geografía, heurísticas antiestafa, umbrales y pesos.
+    base = datos.pop("extiende", None)
+    if not base:
+        return datos
+    return _fundir(_leer(ruta.parent / base), datos)
+
+
+def _fundir(base: dict, encima: dict) -> dict:
+    """Mezcla tabla por tabla. Una lista del programa REEMPLAZA la de la base:
+
+    añadir un cargo no debe obligar a adivinar si se suma o se pisa."""
+    resultado = dict(base)
+    for clave, valor in encima.items():
+        if isinstance(valor, dict) and isinstance(resultado.get(clave), dict):
+            resultado[clave] = _fundir(resultado[clave], valor)
+        else:
+            resultado[clave] = valor
+    return resultado

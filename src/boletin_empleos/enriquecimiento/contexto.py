@@ -14,7 +14,10 @@ El modelo NO decide qué vacantes entran —eso lo hace el núcleo, con reglas
 auditables (spec §10)—. Solo redacta.
 """
 
-CONTEXTO_INSTITUCIONAL = """\
+
+def contexto_institucional(programa: str) -> str:
+    """El encargo, con el nombre de la carrera a la que va esta edición."""
+    return f"""\
 Escribes para la Coordinación de Proyección Social de la Facultad de Ingenierías y Ciencias \
 Básicas de la Corporación Universitaria Empresarial Alexander von Humboldt, en Armenia, Quindío \
 (Colombia).
@@ -28,7 +31,7 @@ universidad-empresa-Estado. El lema de la Facultad es "Conectando saberes para t
 realidades sociales".
 
 Este boletín es un instrumento de ese compromiso, no una bolsa de empleo: acompaña la \
-empleabilidad de los egresados del programa de Ingeniería de Software y deja rastro del \
+empleabilidad de los egresados del programa de {programa} y deja rastro del \
 seguimiento que el CNA exige (Acuerdo 01 de 2025, Factor 12). Se prioriza el territorio propio: \
 el Quindío y el eje cafetero primero, luego lo remoto en Colombia, y después el resto.
 

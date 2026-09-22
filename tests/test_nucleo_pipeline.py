@@ -15,6 +15,8 @@ HOY = date(2026, 9, 9)
 CONFIANZA = {"spe": 0.95, "magneto": 0.80, "remoteok": 0.70}
 
 CFG = Config(
+    clave="prueba",
+    programa="Programa de prueba",
     destinatarios=["a@b.co"],
     remitente="a@b.co",
     asunto="Boletín",

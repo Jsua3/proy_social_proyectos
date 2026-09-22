@@ -385,3 +385,10 @@ def test_sin_sitio_el_correo_no_deja_una_imagen_rota():
 
     assert not [i for i in arbol.css("img") if "logo" in i.attributes.get("src", "")]
     assert "Alexander von Humboldt" in html, "el nombre de la institución va siempre"
+
+
+def test_el_correo_dice_de_que_carrera_es():
+    html = renderizar(_datos(programa="Ingeniería Industrial"))
+
+    assert "Ingeniería Industrial" in html
+    assert "Ingeniería de Software" not in html, "el mismo código sirve a las dos carreras"

@@ -56,3 +56,40 @@ def test_un_error_de_red_no_mata_la_oferta():
     vivas, muertas = filtrar_enlaces_vivos([_evaluacion("https://ejemplo.co/4")])
     assert len(vivas) == 1
     assert muertas == []
+
+
+@respx.mock
+def test_un_403_no_es_un_enlace_muerto():
+    """Medido el 22/09/2026: 448 de las 482 vacantes que el boletín de Industrial
+
+    daba por muertas eran enlaces de Computrabajo, que responde 403 a cualquier
+    petición automática. Un navegador las abre sin problema. Un 403 dice "a ti
+    no", no "ya no existe": botarlas costaba dos tercios de la edición."""
+    respx.head("https://portal.co/bloqueada").mock(return_value=httpx.Response(403))
+    respx.get("https://portal.co/bloqueada").mock(return_value=httpx.Response(403))
+
+    vivas, muertas = filtrar_enlaces_vivos([_evaluacion("https://portal.co/bloqueada")])
+
+    assert len(vivas) == 1
+    assert not muertas
+
+
+@respx.mock
+def test_un_error_del_servidor_tampoco_mata_la_oferta():
+    """Un 500 puede ser un problema pasajero del portal; la vacante sigue ahí."""
+    respx.head("https://portal.co/caido").mock(return_value=httpx.Response(500))
+
+    vivas, muertas = filtrar_enlaces_vivos([_evaluacion("https://portal.co/caido")])
+
+    assert len(vivas) == 1
+    assert not muertas
+
+
+@respx.mock
+def test_un_404_si_es_un_enlace_muerto():
+    respx.head("https://portal.co/borrada").mock(return_value=httpx.Response(404))
+
+    vivas, muertas = filtrar_enlaces_vivos([_evaluacion("https://portal.co/borrada")])
+
+    assert not vivas
+    assert muertas[0].motivo is MotivoDescarte.ENLACE_MUERTO

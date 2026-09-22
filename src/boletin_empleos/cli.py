@@ -38,8 +38,34 @@ from boletin_empleos.verificacion import filtrar_enlaces_vivos
 _log = logging.getLogger("boletin")
 
 
-def construir_fuentes() -> list[FuenteEmpleo]:
-    return [FuenteSPE(), FuenteMagneto(), FuenteRemotive(), FuenteRemoteOK()]
+# Cada carrera declara en su archivo cuáles usa: Remotive y Remote OK son
+# bolsas de vacantes de tecnología y no tienen nada que ofrecerle a Ingeniería
+# Industrial.
+def construir_fuentes(cfg: Config) -> list[FuenteEmpleo]:
+    disponibles = {
+        "spe": lambda: FuenteSPE(consultas=cfg.fuentes.consultas()),
+        "magneto": lambda: FuenteMagneto(rutas=cfg.fuentes.rutas_magneto),
+        "remotive": FuenteRemotive,
+        "remoteok": FuenteRemoteOK,
+    }
+    fuentes = []
+    for nombre in cfg.fuentes.usar:
+        crear = disponibles.get(nombre)
+        if crear is None:
+            _log.warning("fuente desconocida en la configuración: %s", nombre)
+            continue
+        fuentes.append(crear())
+    return fuentes
+
+
+def _ruta_config(programa: str) -> Path:
+    return Path("programas") / f"{programa}.toml"
+
+
+def _rutas_de_datos(clave: str) -> tuple[Path, Path]:
+    """Cada carrera archiva lo suyo aparte: (ediciones, historial)."""
+    raiz = Path("datos") / clave
+    return raiz / "ediciones", raiz / "historial.json"
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -58,9 +84,14 @@ class _ArgumentParser(argparse.ArgumentParser):
 def _argumentos(argv: list[str] | None) -> argparse.Namespace:
     p = _ArgumentParser(prog="boletin", description="Boletín quincenal de empleos")
     p.add_argument("--dry-run", action="store_true", help="renderiza y guarda en disco sin enviar")
-    p.add_argument("--config", type=Path, default=Path("config.toml"))
-    p.add_argument("--historial", type=Path, default=Path("datos/historial.json"))
-    p.add_argument("--salida", type=Path, default=Path("datos/ediciones"))
+    p.add_argument(
+        "--programa",
+        default="software",
+        help="carrera del boletín; busca programas/<nombre>.toml",
+    )
+    p.add_argument("--config", type=Path, default=None, help="ruta explícita a la configuración")
+    p.add_argument("--historial", type=Path, default=None)
+    p.add_argument("--salida", type=Path, default=None)
     p.add_argument("--verboso", action="store_true")
     return p.parse_args(argv)
 
@@ -75,13 +106,21 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def ejecutar(args: argparse.Namespace) -> int:
+    ruta_config = args.config or _ruta_config(args.programa)
     try:
-        cfg = cargar_config(args.config)
+        cfg = cargar_config(ruta_config)
     except (OSError, tomllib.TOMLDecodeError, ValidationError) as e:
         # Archivo ausente, TOML ilegible o campo obligatorio faltante: se nombra
         # el archivo para que quien lea el log sepa cuál revisar.
-        _log.error("no se pudo cargar la configuración desde %s: %s", args.config, e)
+        _log.error("no se pudo cargar la configuración desde %s: %s", ruta_config, e)
         return 1
+
+    # Manda la clave del archivo, no la del argumento: así una carrera no puede
+    # terminar escribiendo en la carpeta de otra por un typo en la invocación.
+    salida_por_defecto, historial_por_defecto = _rutas_de_datos(cfg.clave)
+    args.salida = args.salida or salida_por_defecto
+    args.historial = args.historial or historial_por_defecto
+    _log.info("boletín de %s", cfg.programa)
 
     try:
         historial = HistorialJSON(args.historial)
@@ -104,7 +143,7 @@ def ejecutar(args: argparse.Namespace) -> int:
     fuentes_caidas: list[str] = []
     confianza_por_fuente: dict[str, float] = {}
 
-    for fuente in construir_fuentes():
+    for fuente in construir_fuentes(cfg):
         confianza_por_fuente[fuente.nombre] = fuente.confianza_base
         recogidas = fuente.obtener()
         if recogidas:
@@ -133,8 +172,9 @@ def ejecutar(args: argparse.Namespace) -> int:
         _log.warning("no hay ofertas nuevas para esta edición")
         return 3
 
-    enriquecedor = crear_enriquecedor(os.environ.get("ANTHROPIC_API_KEY"))
+    enriquecedor = crear_enriquecedor(os.environ.get("ANTHROPIC_API_KEY"), cfg.programa)
     datos = DatosBoletin(
+        programa=cfg.programa,
         numero_edicion=historial.numero_edicion(),
         fecha=hoy,
         editorial=enriquecedor.editorial(vivas, resultado.conteos),
@@ -188,7 +228,7 @@ def _url_edicion(cfg: Config, hoy: date) -> str | None:
     """Dónde quedará publicada esta edición. Sin sitio configurado, no hay enlace."""
     if not cfg.sitio.url_base:
         return None
-    return f"{cfg.sitio.url_base.rstrip('/')}/ediciones/{hoy.isoformat()}.html"
+    return f"{cfg.sitio.url_base.rstrip('/')}/{cfg.clave}/ediciones/{hoy.isoformat()}.html"
 
 
 def _url_logo(cfg: Config) -> str | None:

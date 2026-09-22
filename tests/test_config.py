@@ -13,7 +13,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 
 
 def test_carga_el_config_del_proyecto():
-    cfg = cargar_config(RAIZ / "config.toml")
+    cfg = cargar_config(RAIZ / "programas" / "software.toml")
 
     assert cfg.destinatarios, "debe haber al menos un destinatario"
     assert cfg.vocabulario.cargos, "el vocabulario de cargos no puede estar vacío"
@@ -25,7 +25,7 @@ def test_carga_el_config_del_proyecto():
 
 
 def test_los_terminos_del_vocabulario_estan_normalizados():
-    cfg = cargar_config(RAIZ / "config.toml")
+    cfg = cargar_config(RAIZ / "programas" / "software.toml")
     todos = cfg.vocabulario.cargos + cfg.vocabulario.tecnologias
     assert all(t == t.lower().strip() for t in todos), (
         "deben venir en minúscula y sin espacios extra"
@@ -98,7 +98,7 @@ CASOS_QUEDAN_FUERA = [
 
 @pytest.mark.parametrize(("titulo", "descripcion"), CASOS_QUEDAN_FUERA)
 def test_r2_3_los_ocho_titulos_del_primer_boletin_real_quedan_fuera(titulo, descripcion):
-    cfg = cargar_config(RAIZ / "config.toml")
+    cfg = cargar_config(RAIZ / "programas" / "software.toml")
     assert _pasa_relevancia_y_experiencia(cfg, titulo, descripcion) is False, titulo
 
 
@@ -129,7 +129,7 @@ CASOS_SIGUEN_ENTRANDO = [
 @pytest.mark.parametrize(("titulo", "descripcion"), CASOS_SIGUEN_ENTRANDO)
 def test_r2_3_las_ofertas_de_software_legitimas_siguen_entrando(titulo, descripcion):
     """El ajuste de vocabulario no debe dejar fuera ofertas de software genuinas."""
-    cfg = cargar_config(RAIZ / "config.toml")
+    cfg = cargar_config(RAIZ / "programas" / "software.toml")
     assert _pasa_relevancia_y_experiencia(cfg, titulo, descripcion) is True, titulo
 
 
@@ -137,7 +137,7 @@ def test_r2_3_sr_reemplaza_a_sr_punto_sin_perder_cobertura_ni_casar_en_sres():
     """ "sr." pasó a "sr": la frontera de palabra ya cubre "Sr" y "Sr." sin el
 
     punto, y "sr" no debe casar dentro de "Sres."."""
-    cfg = cargar_config(RAIZ / "config.toml")
+    cfg = cargar_config(RAIZ / "programas" / "software.toml")
     assert "sr" in cfg.experiencia.terminos_excluidos
     assert "sr." not in cfg.experiencia.terminos_excluidos
 
@@ -163,13 +163,13 @@ def test_r2_3_desarrollador_a_comercial_con_barra_tambien_queda_fuera():
     coincidencia exacta de la frase, y el título por sí solo ya suma
     relevancia vía el cargo "desarrollador". Se cubre con el propio título
     real como término adicional en `excluidos`."""
-    cfg = cargar_config(RAIZ / "config.toml")
+    cfg = cargar_config(RAIZ / "programas" / "software.toml")
     assert puntuar_relevancia(_oferta("Desarrollador/a comercial"), cfg.vocabulario) == 0.0
 
 
 def test_el_config_del_proyecto_apunta_al_sitio_publico():
     """Sin url_base el correo llevaría el boletín entero y Gmail lo recortaría."""
-    cfg = cargar_config(RAIZ / "config.toml")
+    cfg = cargar_config(RAIZ / "programas" / "software.toml")
 
     assert cfg.sitio.url_base.startswith("https://")
     assert cfg.sitio.vacantes_en_correo > 0
@@ -178,6 +178,8 @@ def test_el_config_del_proyecto_apunta_al_sitio_publico():
 def test_sin_seccion_sitio_no_hay_enlace_y_el_correo_va_completo(tmp_path):
     ruta = tmp_path / "config.toml"
     ruta.write_text(
+        'clave = "x"\n'
+        'programa = "Programa de prueba"\n'
         'destinatarios = ["a@b.co"]\n'
         'remitente = "a@b.co"\n'
         'asunto = "Boletín"\n'
@@ -207,6 +209,128 @@ def test_sin_seccion_sitio_no_hay_enlace_y_el_correo_va_completo(tmp_path):
     ],
 )
 def test_la_geografia_del_proyecto_reconoce_el_eje_cafetero(ubicacion, esperado):
-    cfg = cargar_config(RAIZ / "config.toml")
+    cfg = cargar_config(RAIZ / "programas" / "software.toml")
 
     assert es_del_eje_cafetero(ubicacion, cfg.geografia) is esperado
+
+
+# --- Dos carreras, una sola base ------------------------------------------------
+
+
+def _escribir(ruta, texto):
+    ruta.write_text(texto, encoding="utf-8")
+    return ruta
+
+
+def test_un_programa_extiende_la_configuracion_comun(tmp_path):
+    _escribir(
+        tmp_path / "comun.toml",
+        "dias_max_antiguedad = 30\numbral_relevancia = 0.35\n"
+        '[geografia]\ndepartamentos = ["quindio"]\n',
+    )
+    _escribir(
+        tmp_path / "x.toml",
+        'extiende = "comun.toml"\nclave = "x"\nprograma = "Programa de prueba"\n'
+        'destinatarios = ["a@b.co"]\nremitente = "a@b.co"\nasunto = "A"\n'
+        '[vocabulario]\ncargos = ["ingeniero"]\n',
+    )
+
+    cfg = cargar_config(tmp_path / "x.toml")
+
+    assert cfg.dias_max_antiguedad == 30, "heredado de la base"
+    assert cfg.geografia.departamentos == ["quindio"], "la geografía es común a las carreras"
+    assert cfg.vocabulario.cargos == ["ingeniero"], "el vocabulario es propio"
+    assert cfg.programa == "Programa de prueba"
+    assert cfg.clave == "x"
+
+
+def test_lo_que_define_el_programa_manda_sobre_lo_comun(tmp_path):
+    _escribir(tmp_path / "comun.toml", "dias_max_antiguedad = 30\numbral_relevancia = 0.35\n")
+    _escribir(
+        tmp_path / "x.toml",
+        'extiende = "comun.toml"\nclave = "x"\nprograma = "P"\numbral_relevancia = 0.5\n'
+        'destinatarios = ["a@b.co"]\nremitente = "a@b.co"\nasunto = "A"\n',
+    )
+
+    cfg = cargar_config(tmp_path / "x.toml")
+
+    assert cfg.umbral_relevancia == 0.5
+    assert cfg.dias_max_antiguedad == 30
+
+
+def test_las_dos_carreras_reales_comparten_base_y_difieren_en_vocabulario():
+    software = cargar_config(RAIZ / "programas" / "software.toml")
+    industrial = cargar_config(RAIZ / "programas" / "industrial.toml")
+
+    assert (software.clave, industrial.clave) == ("software", "industrial")
+    assert "Software" in software.programa and "Industrial" in industrial.programa
+    assert software.geografia.departamentos == industrial.geografia.departamentos
+    assert software.legitimidad.frases_descarte == industrial.legitimidad.frases_descarte
+    assert software.vocabulario.cargos != industrial.vocabulario.cargos
+    assert software.destinatarios == industrial.destinatarios, "misma Coordinación"
+    assert software.asunto != industrial.asunto, "el asunto dice de qué carrera es"
+
+
+def test_cada_carrera_consulta_sus_propios_cargos_en_las_fuentes():
+    software = cargar_config(RAIZ / "programas" / "software.toml")
+    industrial = cargar_config(RAIZ / "programas" / "industrial.toml")
+
+    cargos_software = [c.get("cargo", "") for c in software.fuentes.consultas()]
+    cargos_industrial = [c.get("cargo", "") for c in industrial.fuentes.consultas()]
+
+    assert any("desarrollador" in c for c in cargos_software)
+    assert any("industrial" in c for c in cargos_industrial)
+    assert software.fuentes.rutas_magneto, "las rutas de Magneto también salen de la configuración"
+
+
+# --- Fugas medidas en la primera corrida real de Industrial (22/09/2026) --------
+
+_FUGAS_INDUSTRIAL = [
+    "Analista de Nomina SAP HCM [Remoto] - Bogota",
+    "Lider de Nomina SAP (SAP HCM) [Hibrido]",
+    "Gestor de novedades - Nomina SAP",
+    "Analista de seguridad social - Nomina - SAP",
+    "Auxiliar contable - sap - facturacion electronica - bogota",
+    "Desarrollador SAP ABAP y Funcional [Hibrido]",
+    "Consultor SAP FSCM o Consultor SAP TM Remoto",
+    "Analista de planeacion financiera para personas con o sin discapacidad",
+]
+
+_LEGITIMAS_INDUSTRIAL = [
+    "Ingeniero Industrial",
+    "Analista de inventarios",
+    "Coordinador de Produccion",
+    "Supervisor de produccion",
+    "Profesional en seguridad y salud en el trabajo",
+    "Analista de costos",
+    "Auditor de Calidad (ISO/IEC 17025)",
+]
+
+
+def _pasa_relevancia(titulo: str, cfg) -> bool:
+    oferta = Oferta(
+        id="x:1",
+        fuente="spe",
+        titulo=titulo,
+        modalidad=Modalidad.PRESENCIAL,
+        url="https://ejemplo.co/1",
+        descripcion="Empresa del sector busca profesional para el cargo descrito. " * 5,
+        recogida_en=datetime(2026, 9, 22, tzinfo=UTC),
+    )
+    puntaje = puntuar_relevancia(oferta, cfg.vocabulario, cfg.relevancia)
+    return puntaje >= cfg.umbral_relevancia
+
+
+@pytest.mark.parametrize("titulo", _FUGAS_INDUSTRIAL)
+def test_las_fugas_de_nomina_y_software_no_entran_al_boletin_de_industrial(titulo):
+    """«SAP» a secas alcanzaba para colar nóminas, contabilidad y desarrollo."""
+    cfg = cargar_config(RAIZ / "programas" / "industrial.toml")
+
+    assert not _pasa_relevancia(titulo, cfg), titulo
+
+
+@pytest.mark.parametrize("titulo", _LEGITIMAS_INDUSTRIAL)
+def test_las_vacantes_propias_de_industrial_siguen_entrando(titulo):
+    cfg = cargar_config(RAIZ / "programas" / "industrial.toml")
+
+    assert _pasa_relevancia(titulo, cfg), titulo

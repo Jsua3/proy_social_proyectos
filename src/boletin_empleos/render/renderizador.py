@@ -37,6 +37,9 @@ class FuenteUsada(BaseModel):
 
 
 class DatosBoletin(BaseModel):
+    # "Ingeniería de Software", "Ingeniería Industrial": el mismo código sirve a
+    # todas las carreras y cada edición dice de cuál es.
+    programa: str = ""
     numero_edicion: int
     fecha: date
     editorial: str
@@ -70,6 +73,7 @@ def renderizar(datos: DatosBoletin) -> str:
     # queda a un clic.
     es_correo = datos.url_edicion is not None
     return plantilla.render(
+        programa=datos.programa,
         numero_edicion=datos.numero_edicion,
         fecha=en_palabras(datos.fecha),
         editorial=datos.editorial,

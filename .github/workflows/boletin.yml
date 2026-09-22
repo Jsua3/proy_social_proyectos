@@ -34,9 +34,9 @@ concurrency:
 jobs:
   generar:
     runs-on: ubuntu-latest
-    # Una corrida completa tarda unos tres minutos: el Servicio Público de Empleo
-    # se pagina de a decenas de páginas y después se comprueba cada enlace.
-    timeout-minutes: 30
+    # Cada carrera tarda unos cinco minutos: el Servicio Público de Empleo se
+    # pagina de a decenas de páginas y después se comprueba cada enlace.
+    timeout-minutes: 45
     environment:
       name: github-pages
       url: ${{ steps.despliegue.outputs.page_url }}
@@ -71,7 +71,7 @@ jobs:
             echo "::notice::Modo vista previa: la edición se publica en el sitio, pero no se envía correo ni se modifica el historial."
           fi
 
-      - name: Generar el boletín
+      - name: Generar los boletines
         id: generar
         env:
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
@@ -81,34 +81,44 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ENVIAR: ${{ steps.modo.outputs.enviar }}
         run: |
-          set +e
-          if [ "$ENVIAR" = "true" ]; then
-            uv run boletin --verboso
-          else
-            uv run boletin --dry-run --verboso
-          fi
-          codigo=$?
-          set -e
+          # Una edición por carrera. Si una falla, las demás siguen: al final se
+          # decide si la corrida entera queda en rojo.
+          peor=0
+          for archivo in programas/*.toml; do
+            clave=$(basename "$archivo" .toml)
+            if [ "$clave" = "comun" ]; then continue; fi
 
-          echo "codigo=$codigo" >> "$GITHUB_OUTPUT"
-          case "$codigo" in
-            0) ;;
-            3) echo "::warning::No hubo vacantes nuevas para esta edición; no se generó boletín." ;;
-            2) echo "::error::Ningún portal respondió. No se envía un boletín vacío."; exit 2 ;;
-            *) echo "::error::La corrida falló con código $codigo. Revisa el registro de este paso."; exit "$codigo" ;;
-          esac
+            echo "::group::$clave"
+            set +e
+            if [ "$ENVIAR" = "true" ]; then
+              uv run boletin --programa "$clave" --verboso
+            else
+              uv run boletin --programa "$clave" --dry-run --verboso
+            fi
+            codigo=$?
+            set -e
+            echo "::endgroup::"
 
-      - name: Publicar la edición como archivo descargable
-        if: always() && steps.generar.outputs.codigo == '0'
+            case "$codigo" in
+              0) echo "::notice::$clave: edición generada." ;;
+              3) echo "::warning::$clave: no hubo vacantes nuevas para esta edición." ;;
+              2) echo "::error::$clave: ningún portal respondió."; peor=2 ;;
+              *) echo "::error::$clave: falló con código $codigo."; peor=$codigo ;;
+            esac
+          done
+          echo "codigo=$peor" >> "$GITHUB_OUTPUT"
+
+      - name: Publicar las ediciones como archivo descargable
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: boletin-${{ github.run_number }}
-          path: datos/ediciones/*.html
+          path: datos/*/ediciones/*.html
           if-no-files-found: ignore
           retention-days: 90
 
       - name: Guardar la edición en el repositorio
-        if: steps.generar.outputs.codigo == '0'
+        if: ${{ !cancelled() }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -117,20 +127,26 @@ jobs:
           git push
 
       - name: Construir el sitio de ediciones
-        if: steps.generar.outputs.codigo == '0'
+        if: ${{ !cancelled() }}
         run: uv run python -m boletin_empleos.sitio
 
       - name: Preparar GitHub Pages
-        if: steps.generar.outputs.codigo == '0'
+        if: ${{ !cancelled() }}
         uses: actions/configure-pages@v5
 
       - name: Subir el sitio
-        if: steps.generar.outputs.codigo == '0'
+        if: ${{ !cancelled() }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: sitio
 
       - name: Desplegar el sitio
         id: despliegue
-        if: steps.generar.outputs.codigo == '0'
+        if: ${{ !cancelled() }}
         uses: actions/deploy-pages@v4
+
+      - name: Dejar la corrida en rojo si alguna carrera falló
+        if: steps.generar.outputs.codigo != '0'
+        run: |
+          echo "::error::Alguna carrera terminó con código ${{ steps.generar.outputs.codigo }}."
+          exit 1

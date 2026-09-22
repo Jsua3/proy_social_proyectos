@@ -11,6 +11,7 @@ on:
     paths:
       - "src/boletin_empleos/sitio.py"
       - "src/boletin_empleos/render/**"
+      - "programas/**"
       - ".github/workflows/sitio.yml"
   workflow_dispatch:
 

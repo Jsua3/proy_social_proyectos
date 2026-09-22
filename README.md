@@ -1,8 +1,13 @@
-# Boletín de empleos — Ingeniería de Software
+# Boletín de empleos — Proyección Social
 
-Agente que cada quince días recolecta ofertas de empleo en desarrollo de software desde fuentes
-autorizadas, las filtra por pertinencia y legitimidad, y entrega un boletín HTML a la Coordinación de
-Proyección Social de la Facultad de Ingenierías y Ciencias Básicas.
+Agente que cada quince días recolecta ofertas de empleo desde fuentes autorizadas, las filtra por
+pertinencia y legitimidad, y entrega un boletín HTML a la Coordinación de Proyección Social de la
+Facultad de Ingenierías y Ciencias Básicas.
+
+Hoy sirve a **dos carreras** con el mismo código: **Ingeniería de Software** e **Ingeniería
+Industrial**. Cada una tiene su vocabulario, sus fuentes y su sección en el sitio; todo lo demás
+—filtros, antiestafa, geografía, diseño, envío— es compartido, así que un arreglo las mejora a las
+dos.
 
 Corporación Universitaria Empresarial Alexander von Humboldt · Armenia, Quindío.
 
@@ -32,13 +37,16 @@ Para volver a vista previa, basta con borrar esa variable o ponerla en `false`.
 
 ```bash
 uv sync
-uv run boletin --dry-run     # vista previa: no envía nada ni toca el historial
-uv run boletin               # genera y envía (exige las variables SMTP_*)
-uv run python -m boletin_empleos.sitio   # arma el sitio en sitio/ a partir de datos/ediciones/
-uv run pytest                # 304 pruebas, sin red
+uv run boletin --programa software --dry-run     # vista previa, sin enviar ni tocar el historial
+uv run boletin --programa industrial --dry-run
+uv run boletin --programa software               # genera y envía (exige las variables SMTP_*)
+uv run python -m boletin_empleos.sitio           # arma el sitio con todas las carreras
+uv run pytest                                    # 314 pruebas, sin red
 ```
 
-Una vista previa deja dos archivos en `datos/ediciones/`:
+Sin `--programa` se asume `software`.
+
+Una vista previa deja dos archivos en `datos/<carrera>/ediciones/`:
 
 | Archivo | Qué es |
 |---|---|
@@ -124,10 +132,22 @@ El agente se identifica con el nombre del proyecto y un correo de contacto insti
 petición. Es deliberado: si un portal tiene un problema con el agente, sabe a quién escribir en vez de
 bloquearlo sin aviso.
 
-## Configuración
+## Configuración: una carrera, un archivo
 
-Todo lo ajustable vive en `config.toml`: destinatarios, vocabulario de cargos y tecnologías, umbrales y
-heurísticas antiestafa. **No hace falta saber Python para afinar el filtro.**
+```
+programas/
+├── comun.toml        # umbrales, pesos, antiestafa, geografía y descarga: lo de todas
+├── software.toml     # vocabulario, cargos del SPE y asunto de Ingeniería de Software
+└── industrial.toml   # lo mismo para Ingeniería Industrial
+```
+
+Cada archivo de carrera empieza con `extiende = "comun.toml"`. Lo que el programa define manda sobre
+la base, y una lista del programa **reemplaza** la de la base en vez de sumarse.
+
+**Añadir una carrera es crear un archivo más**: el sitio y la ejecución automática la descubren solas.
+Necesita `clave`, `programa`, destinatarios, su `[vocabulario]` y sus `cargos_spe`.
+
+**No hace falta saber Python para afinar el filtro.**
 
 ## Secretos y variables
 

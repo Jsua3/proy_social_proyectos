@@ -66,7 +66,7 @@ def test_lleva_la_identidad_de_la_universidad():
     imagenes = [i.attributes.get("src", "") for i in arbol.css("img")]
     assert any("logo-humboldt" in src for src in imagenes), "el logo institucional"
     assert "Alexander von Humboldt" in arbol.text()
-    assert 'href="../estilo.css"' in html, "la edición vive un nivel adentro del sitio"
+    assert 'href="../../estilo.css"' in html, "la edición cuelga de <carrera>/ediciones/"
 
 
 def test_cada_vacante_enlaza_su_oferta_en_una_pestana_nueva():
@@ -134,3 +134,11 @@ def test_vuelve_al_indice_del_sitio():
     arbol = HTMLParser(html)
 
     assert [a for a in arbol.css("a") if a.attributes.get("href") == "../index.html"]
+
+
+def test_la_pagina_dice_de_que_carrera_es():
+    html = renderizar_web(_datos(programa="Ingeniería Industrial"))
+    texto = HTMLParser(html).text()
+
+    assert "Ingeniería Industrial" in texto
+    assert "Ingeniería de Software" not in texto

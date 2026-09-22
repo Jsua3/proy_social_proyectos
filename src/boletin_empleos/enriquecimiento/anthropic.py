@@ -7,19 +7,22 @@ No decide qué ofertas entran — solo redacta. Es la invariante del spec §10.
 import json
 import logging
 
-from boletin_empleos.enriquecimiento.contexto import CONTEXTO_INSTITUCIONAL
+from boletin_empleos.enriquecimiento.contexto import contexto_institucional
 from boletin_empleos.enriquecimiento.nulo import EnriquecedorNulo
 from boletin_empleos.modelos import Evaluacion
 
 _log = logging.getLogger(__name__)
 _MODELO = "claude-sonnet-5"
-_NULO = EnriquecedorNulo()
 
 
 class EnriquecedorAnthropic:
-    def __init__(self, api_key: str, modelo: str = _MODELO) -> None:
+    def __init__(
+        self, api_key: str, programa: str = "Ingeniería de Software", modelo: str = _MODELO
+    ) -> None:
         self._api_key = api_key
+        self._programa = programa
         self._modelo = modelo
+        self._nulo = EnriquecedorNulo(programa)
 
     def _pedir(self, prompt: str, max_tokens: int) -> str:
         from anthropic import Anthropic
@@ -44,7 +47,7 @@ class EnriquecedorAnthropic:
             for e in evaluaciones
         ]
         prompt = (
-            f"{CONTEXTO_INSTITUCIONAL}\n\n"
+            f"{contexto_institucional(self._programa)}\n\n"
             "Resume cada vacante en UNA sola frase en español, máximo 20 palabras, "
             "enfocada en qué hace la persona y qué tecnologías usa. "
             "Usa únicamente lo que diga la descripción: no inventes tecnologías, "
@@ -67,9 +70,9 @@ class EnriquecedorAnthropic:
         # encargo al pie de la letra redactaría una afirmación falsa.
         del_eje = sum(1 for e in evaluaciones if e.prioridad_local)
         prompt = (
-            f"{CONTEXTO_INSTITUCIONAL}\n\n"
+            f"{contexto_institucional(self._programa)}\n\n"
             "Escribe el párrafo de apertura de esta edición del boletín de empleos, dirigido a "
-            "los egresados del programa de Ingeniería de Software. "
+            f"los egresados del programa de {self._programa}. "
             "Las vacantes están vigentes a la fecha de esta edición, no necesariamente publicadas "
             "en los últimos días: no afirmes ninguna ventana de tiempo. "
             "Máximo 60 palabras, sin saludos ni despedidas, y sin repetir el nombre completo de "
@@ -83,4 +86,4 @@ class EnriquecedorAnthropic:
             return self._pedir(prompt, max_tokens=300).strip()
         except Exception as e:
             _log.warning("enriquecimiento: falló el editorial (%s); se usa el texto fijo", e)
-            return _NULO.editorial(evaluaciones, conteos)
+            return self._nulo.editorial(evaluaciones, conteos)
