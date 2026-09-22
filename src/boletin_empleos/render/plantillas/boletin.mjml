@@ -1,7 +1,7 @@
 <mjml>
   <mj-head>
-    <mj-title>Boletín de empleos — Ingeniería de Software</mj-title>
-    <mj-preview>{{ conteos.incluidas }} vacantes vigentes para egresados de Ingeniería de Software.</mj-preview>
+    <mj-title>Boletín de empleos — {{ programa }}</mj-title>
+    <mj-preview>{{ conteos.incluidas }} vacantes vigentes para egresados de {{ programa }}.</mj-preview>
     <mj-attributes>
       {# Sin fuentes web: los clientes de correo las bloquean o las ignoran. #}
       <mj-all font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" />
@@ -28,7 +28,7 @@
           Boletín de empleos
         </mj-text>
         <mj-text font-size="12px" color="#5a6673" padding="0">
-          Proyección Social · Facultad de Ingenierías y Ciencias Básicas
+          {{ programa }} · Proyección Social
         </mj-text>
       </mj-column>
     </mj-section>

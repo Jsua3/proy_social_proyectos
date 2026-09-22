@@ -1,9 +1,16 @@
-"""Sitio público: el archivo histórico de ediciones.
+"""Sitio público: el archivo histórico de ediciones, carrera por carrera.
 
 El correo a la Coordinación solo lleva las vacantes más pertinentes, porque Gmail
 recorta los mensajes de más de unos 102 KB. La edición completa se publica aquí y
 el correo la enlaza. De paso, una lista de ediciones fechadas es el rastro que el
 CNA pide para el seguimiento a la empleabilidad (Acuerdo 01 de 2025, Factor 12).
+
+Estructura publicada:
+
+    index.html                       portada con las carreras
+    estilo.css · logo · movimiento   compartidos por todas
+    <clave>/index.html               ediciones de esa carrera
+    <clave>/ediciones/AAAA-MM-DD.html
 
 Toca disco, no red: por eso vive fuera del núcleo.
 """
@@ -13,9 +20,12 @@ import json
 import logging
 import re
 import shutil
+import tomllib
 from datetime import date
 from html import escape
 from pathlib import Path
+
+from pydantic import BaseModel
 
 from boletin_empleos.render.formato import en_palabras
 from boletin_empleos.render.web import (
@@ -33,27 +43,82 @@ _log = logging.getLogger(__name__)
 _NOMBRE_EDICION = re.compile(r"^(\d{4}-\d{2}-\d{2})\.html$")
 
 
-def construir_sitio(ediciones: Path, destino: Path, historial: Path | None = None) -> list[date]:
-    """Copia las ediciones al sitio y escribe el índice. Devuelve las publicadas."""
-    fechas = sorted(_ediciones(Path(ediciones)), reverse=True)
-    enviadas = _fechas_enviadas(historial)
+class ProgramaSitio(BaseModel):
+    """Una carrera y dónde están sus cosas."""
 
+    clave: str
+    programa: str
+    ediciones: Path
+    historial: Path | None = None
+
+
+def programas_desde(carpeta: Path, datos: Path) -> list[ProgramaSitio]:
+    """Descubre las carreras leyendo programas/*.toml.
+
+    Añadir una carrera nueva es dejar caer su archivo ahí: ni el sitio ni el
+    workflow necesitan enterarse.
+    """
+    programas = []
+    for archivo in sorted(Path(carpeta).glob("*.toml")):
+        with archivo.open("rb") as f:
+            cfg = tomllib.load(f)
+        clave, nombre = cfg.get("clave"), cfg.get("programa")
+        if not clave or not nombre:
+            continue  # comun.toml y cualquier otro archivo de apoyo
+        programas.append(
+            ProgramaSitio(
+                clave=clave,
+                programa=nombre,
+                ediciones=Path(datos) / clave / "ediciones",
+                historial=Path(datos) / clave / "historial.json",
+            )
+        )
+    return programas
+
+
+def construir_sitio(programas: list[ProgramaSitio], destino: Path) -> dict[str, list[date]]:
+    """Publica el sitio entero. Devuelve, por carrera, las ediciones publicadas."""
     destino = Path(destino)
-    (destino / "ediciones").mkdir(parents=True, exist_ok=True)
+    destino.mkdir(parents=True, exist_ok=True)
+
+    # Hoja de estilos, escudo y movimiento: una sola copia para todas las carreras.
+    for estatico in ARCHIVOS_ESTATICOS:
+        shutil.copyfile(ESTATICOS / estatico, destino / estatico)
+
+    publicadas: dict[str, list[date]] = {}
+    resumen: list[tuple[ProgramaSitio, list[date]]] = []
+    for programa in programas:
+        fechas = _publicar_carrera(programa, destino)
+        publicadas[programa.clave] = fechas
+        resumen.append((programa, fechas))
+
+    (destino / "index.html").write_text(_portada(resumen), encoding="utf-8")
+    _log.info(
+        "sitio construido en %s con %d carreras y %d ediciones",
+        destino,
+        len(programas),
+        sum(len(f) for f in publicadas.values()),
+    )
+    return publicadas
+
+
+def _publicar_carrera(programa: ProgramaSitio, destino: Path) -> list[date]:
+    fechas = sorted(_ediciones(programa.ediciones), reverse=True)
+    enviadas = _fechas_enviadas(programa.historial)
+
+    carpeta = destino / programa.clave
+    (carpeta / "ediciones").mkdir(parents=True, exist_ok=True)
 
     vacantes: dict[date, int] = {}
     for fecha in fechas:
         nombre = f"{fecha.isoformat()}.html"
-        origen = Path(ediciones) / nombre
-        shutil.copyfile(origen, destino / "ediciones" / nombre)
+        origen = programa.ediciones / nombre
+        shutil.copyfile(origen, carpeta / "ediciones" / nombre)
         vacantes[fecha] = _vacantes_en(origen)
 
-    # Hoja de estilos, escudo y movimiento: sin ellos la página se ve desnuda.
-    for estatico in ARCHIVOS_ESTATICOS:
-        shutil.copyfile(ESTATICOS / estatico, destino / estatico)
-
-    (destino / "index.html").write_text(_indice(fechas, enviadas, vacantes), encoding="utf-8")
-    _log.info("sitio construido en %s con %d ediciones", destino, len(fechas))
+    (carpeta / "index.html").write_text(
+        _indice(programa, fechas, enviadas, vacantes), encoding="utf-8"
+    )
     return fechas
 
 
@@ -94,7 +159,7 @@ def _vacantes_en(archivo: Path) -> int:
         return 0
 
 
-def _tarjeta(fecha: date, enviada: bool, vacantes: int) -> str:
+def _tarjeta_edicion(fecha: date, enviada: bool, vacantes: int) -> str:
     estado = "Enviada a la Coordinación" if enviada else "Vista previa"
     clase = "enviada" if enviada else "previa"
     detalle = f"{vacantes} vacantes" if vacantes else "Edición completa"
@@ -110,25 +175,85 @@ def _tarjeta(fecha: date, enviada: bool, vacantes: int) -> str:
     )
 
 
-def _indice(fechas: list[date], enviadas: set[date], vacantes: dict[date, int]) -> str:
+def _indice(
+    programa: ProgramaSitio,
+    fechas: list[date],
+    enviadas: set[date],
+    vacantes: dict[date, int],
+) -> str:
     if fechas:
-        tarjetas = "\n".join(_tarjeta(f, f in enviadas, vacantes.get(f, 0)) for f in fechas)
+        tarjetas = "\n".join(_tarjeta_edicion(f, f in enviadas, vacantes.get(f, 0)) for f in fechas)
         lista = f'    <ul class="ediciones">\n{tarjetas}\n    </ul>'
     else:
         lista = '    <p class="aviso">Todavía no hay ediciones publicadas.</p>'
 
-    # La portada va sin párrafo: el título ya dice qué hay, y la explicación del
-    # proceso vive en el pie, donde no estorba.
     cuerpo = f"""  <section class="portada aparece">
     <span class="etiqueta">Boletín quincenal</span>
-    <h1>Vacantes de software para nuestros egresados</h1>
+    <h1>Vacantes para los egresados de {escape(programa.programa)}</h1>
   </section>
 
   <section class="seccion aparece">
 {lista}
   </section>
 
-  <footer class="pie aparece">
+{_pie_comun()}"""
+
+    return pagina(
+        titulo=f"Boletín de empleos — {programa.programa}",
+        subtitulo=f"{programa.programa} · Proyección Social",
+        descripcion=(
+            f"Archivo de ediciones del boletín quincenal de empleos para egresados de "
+            f"{programa.programa} de la {INSTITUCION}."
+        ),
+        cuerpo=cuerpo,
+        profundidad="../",
+        accion='<a class="boton boton--tenue barra__accion" href="../index.html">Carreras</a>',
+    )
+
+
+def _portada(resumen: list[tuple[ProgramaSitio, list[date]]]) -> str:
+    tarjetas = []
+    for programa, fechas in resumen:
+        if fechas:
+            detalle = f"{len(fechas)} ediciones · última, {en_palabras(fechas[0])}"
+        else:
+            detalle = "Todavía no hay ediciones publicadas"
+        tarjetas.append(
+            f'      <li><a class="edicion" href="{programa.clave}/index.html">\n'
+            f"        <span>\n"
+            f'          <span class="edicion__fecha">{escape(programa.programa)}</span><br>\n'
+            f'          <span class="edicion__detalle">{escape(detalle)}</span>\n'
+            f"        </span>\n"
+            f'        <span class="edicion__flecha" aria-hidden="true">›</span>\n'
+            f"      </a></li>"
+        )
+
+    lista = "\n".join(tarjetas)
+    cuerpo = f"""  <section class="portada aparece">
+    <span class="etiqueta">Boletín quincenal</span>
+    <h1>Vacantes para nuestros egresados</h1>
+  </section>
+
+  <section class="seccion aparece">
+    <ul class="ediciones">
+{lista}
+    </ul>
+  </section>
+
+{_pie_comun()}"""
+
+    return pagina(
+        titulo="Boletín de empleos — Proyección Social",
+        descripcion=(
+            "Boletín quincenal de empleos para los egresados de la Facultad de Ingenierías "
+            f"y Ciencias Básicas de la {INSTITUCION}."
+        ),
+        cuerpo=cuerpo,
+    )
+
+
+def _pie_comun() -> str:
+    return f"""  <footer class="pie aparece">
     <p><strong>{escape(UNIDAD)}</strong><br>{escape(INSTITUCION)} · Armenia, Quindío</p>
     <p>
       Vacantes recogidas del Servicio Público de Empleo, Magneto365, Remotive y Remote OK,
@@ -136,28 +261,24 @@ def _indice(fechas: list[date], enviadas: set[date], vacantes: dict[date, int]) 
     </p>
   </footer>"""
 
-    return pagina(
-        titulo="Boletín de empleos — Ingeniería de Software",
-        descripcion=(
-            "Archivo de ediciones del boletín quincenal de empleos para egresados de "
-            "Ingeniería de Software de la Corporación Universitaria Empresarial "
-            "Alexander von Humboldt."
-        ),
-        cuerpo=cuerpo,
-    )
-
 
 def main(argv: list[str] | None = None) -> int:
     """Entrada para el workflow: `python -m boletin_empleos.sitio`."""
     p = argparse.ArgumentParser(prog="sitio", description="Construye el sitio de ediciones")
-    p.add_argument("--ediciones", type=Path, default=Path("datos/ediciones"))
+    p.add_argument("--programas", type=Path, default=Path("programas"))
+    p.add_argument("--datos", type=Path, default=Path("datos"))
     p.add_argument("--destino", type=Path, default=Path("sitio"))
-    p.add_argument("--historial", type=Path, default=Path("datos/historial.json"))
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    publicadas = construir_sitio(args.ediciones, args.destino, args.historial)
-    _log.info("%d ediciones publicadas en %s", len(publicadas), args.destino)
+    programas = programas_desde(args.programas, args.datos)
+    if not programas:
+        _log.error("no se encontró ninguna carrera en %s", args.programas)
+        return 1
+
+    publicadas = construir_sitio(programas, args.destino)
+    for clave, fechas in publicadas.items():
+        _log.info("%s: %d ediciones", clave, len(fechas))
     return 0
 
 

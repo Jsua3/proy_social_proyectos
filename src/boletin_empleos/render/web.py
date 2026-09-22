@@ -37,6 +37,7 @@ def pagina(
     cuerpo: str,
     profundidad: str = "",
     accion: str = "",
+    subtitulo: str = UNIDAD,
 ) -> str:
     """El armazón común del sitio: barra flotante con el escudo y contenido debajo."""
     return f"""<!doctype html>
@@ -58,7 +59,7 @@ def pagina(
       alt="{escape(INSTITUCION)}"></span>
     <span class="barra__texto">
       <span class="barra__titulo">Boletín de empleos</span>
-      <span class="barra__pie">{escape(UNIDAD)}</span>
+      <span class="barra__pie">{escape(subtitulo)}</span>
     </span>
     {accion}
   </div>
@@ -86,13 +87,14 @@ def renderizar_web(datos: DatosBoletin) -> str:
         ]
     )
     return pagina(
-        titulo=f"Boletín de empleos · {en_palabras(datos.fecha)}",
+        titulo=f"Boletín de empleos — {datos.programa} · {en_palabras(datos.fecha)}",
+        subtitulo=f"{datos.programa} · Proyección Social" if datos.programa else UNIDAD,
         descripcion=(
-            f"{total} vacantes de desarrollo de software vigentes, filtradas por pertinencia "
-            "para los egresados del programa."
+            f"{total} vacantes vigentes, filtradas por pertinencia para los egresados "
+            f"de {datos.programa}."
         ),
         cuerpo=cuerpo,
-        profundidad="../",
+        profundidad="../../",
         accion='<a class="boton boton--tenue barra__accion" href="../index.html">Ediciones</a>',
     )
 

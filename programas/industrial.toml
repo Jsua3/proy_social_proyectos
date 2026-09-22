@@ -1,0 +1,101 @@
+# Boletín de empleos — Ingeniería Industrial.
+# Lo que no está aquí se hereda de comun.toml.
+
+extiende = "comun.toml"
+
+clave = "industrial"
+programa = "Ingeniería Industrial"
+
+destinatarios = ["coorproyeccioning@cue.edu.co"]
+remitente = "coorproyeccioning@cue.edu.co"
+asunto = "Boletín de empleos — Ingeniería Industrial"
+
+[fuentes]
+# Ingeniería Industrial no usa Remotive ni Remote OK: son bolsas de vacantes
+# de tecnología y solo gastarían tiempo de corrida.
+usar = ["spe", "magneto"]
+
+# Ocupaciones con las que el SPE indexa estas vacantes. Medidas contra su API el
+# 22/09/2026; al lado va cuántas vacantes tenía cada una ese día. Los términos
+# sueltos ("calidad", "logistica", "produccion") devuelven CERO: el parámetro
+# `cargo` no es una búsqueda de texto libre, casa con nombres de ocupación.
+cargos_spe = [
+  "ingeniero industrial",          # 156
+  "analista de compras",           # 274
+  "analista de inventarios",       # 132
+  "analista de calidad",           # 122
+  "analista de operaciones",       #  92
+  "analista de costos",            #  82
+  "coordinador logistico",         #  36
+  "coordinador de calidad",        #  33
+  "supervisor de produccion",      #  31
+  "ingeniero de calidad",          #  30
+  "analista de procesos",          #  25
+  "jefe de planta",                #  25
+  "coordinador de produccion",     #  19
+  "auditor de calidad",            #  16
+  "analista logistico",            #  15
+  "jefe de produccion",            #   7
+  "analista de produccion",        #   6
+  "ingeniero de procesos",         #   6
+  "coordinador de logistica",      #   6
+  "mejora continua",               #   3
+]
+
+[vocabulario]
+# La flexión automática solo alcanza al final del término, así que los cargos
+# compuestos llevan su forma femenina escrita aparte: "ingeniero industrial" no
+# cubre "ingeniera industrial".
+cargos = [
+  "ingeniero industrial", "ingeniera industrial",
+  "ingeniero de procesos", "ingeniera de procesos",
+  "ingeniero de produccion", "ingeniera de produccion",
+  "ingeniero de calidad", "ingeniera de calidad",
+  "ingeniero de metodos", "ingeniero de planta",
+  "ingeniero de operaciones", "ingeniero logistico", "ingeniera logistica",
+  "analista de procesos", "analista de produccion", "analista de calidad",
+  "analista de operaciones", "analista de inventarios", "analista logistico",
+  "analista de costos", "analista de compras", "analista de abastecimiento",
+  "analista de planeacion de la produccion", "analista de planeacion y abastecimiento",
+  "analista de mejora continua", "analista de metodos",
+  "coordinador de produccion", "coordinadora de produccion",
+  "coordinador de calidad", "coordinadora de calidad",
+  "coordinador logistico", "coordinadora logistica",
+  "coordinador de operaciones", "coordinador de inventarios",
+  "coordinador de compras", "coordinador de planta",
+  "supervisor de produccion", "supervisora de produccion",
+  "supervisor de planta", "supervisor logistico",
+  "planeador de produccion", "programador de la produccion",
+  "auditor de calidad", "auditora de calidad", "gestor de calidad",
+  "jefe de produccion", "jefe de planta", "jefe de calidad", "jefe de logistica",
+  "profesional en seguridad y salud en el trabajo",
+  "coordinador de seguridad y salud en el trabajo",
+  "analista sst", "coordinador sst", "profesional sst", "hseq",
+  "cadena de suministro", "supply chain",
+]
+
+# El equivalente a las tecnologías del boletín de software: las herramientas y
+# metodologías que nombran estas vacantes. Suman pertinencia cuando aparecen.
+tecnologias = [
+  # "sap" a secas NO: en la corrida del 22/09/2026 coló seis vacantes de nómina,
+  # contabilidad y desarrollo ABAP. Un solo término en el título ya pasa el umbral.
+  "sap mm", "sap pp", "sap wm", "erp", "wms", "mrp", "power bi", "minitab",
+  "autocad", "solidworks",
+  "lean", "lean manufacturing", "six sigma", "seis sigma", "kaizen", "5s",
+  "smed", "tpm", "amef", "haccp", "bpm",
+  "iso 9001", "iso 45001", "iso 14001", "iso 22000",
+  "estudio de tiempos", "control estadistico", "planeacion de la demanda",
+  "indicadores de gestion", "kpi", "poka yoke", "balanceo de linea",
+]
+
+# Cuidado al ampliar esta lista: los excluidos se buscan también en la
+# DESCRIPCIÓN, y una vacante de ingeniería que mencione de pasada a los
+# operarios a cargo se caería entera. Por eso solo van términos que no aparecen
+# en el cuerpo de una oferta profesional.
+excluidos = [
+  "call center", "asesor comercial", "asesora comercial",
+  "mercaderista", "impulsador", "impulsadora", "domiciliario",
+  "aprendiz sena",
+]
+
+sin_flexion = []

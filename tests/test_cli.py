@@ -8,7 +8,7 @@ from boletin_empleos.entrega.consola import EntregaConsola
 from boletin_empleos.modelos import Modalidad, Oferta
 
 # Ruta absoluta: los tests no dependen del directorio desde el que se lance pytest.
-CONFIG = Path(__file__).resolve().parents[1] / "config.toml"
+CONFIG = Path(__file__).resolve().parents[1] / "programas" / "software.toml"
 
 
 class FuenteFalsa:
@@ -76,7 +76,7 @@ def test_dry_run_deja_la_edicion_completa_y_la_vista_previa_del_correo(
     """
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("falsa", [_oferta("f:1"), _oferta("f:2")])],
+        lambda cfg: [FuenteFalsa("falsa", [_oferta("f:1"), _oferta("f:2")])],
     )
     assert _correr(tmp_path, "--dry-run") == 0
 
@@ -90,7 +90,7 @@ def test_dry_run_deja_la_edicion_completa_y_la_vista_previa_del_correo(
 def test_el_correo_enlaza_la_edicion_publicada_y_la_edicion_no(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("falsa", [_oferta("f:1"), _oferta("f:2")])],
+        lambda cfg: [FuenteFalsa("falsa", [_oferta("f:1"), _oferta("f:2")])],
     )
     assert _correr(tmp_path, "--dry-run") == 0
 
@@ -106,7 +106,10 @@ def test_el_correo_enlaza_la_edicion_publicada_y_la_edicion_no(tmp_path, monkeyp
 def test_una_fuente_caida_no_tumba_el_boletin(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("viva", [_oferta("v:1", fuente="viva")]), FuenteFalsa("caida", [])],
+        lambda cfg: [
+            FuenteFalsa("viva", [_oferta("v:1", fuente="viva")]),
+            FuenteFalsa("caida", []),
+        ],
     )
     assert _correr(tmp_path, "--dry-run") == 0
     html = (tmp_path / "salida" / f"{date.today().isoformat()}.html").read_text("utf-8")
@@ -114,7 +117,9 @@ def test_una_fuente_caida_no_tumba_el_boletin(tmp_path, monkeypatch, aislado):
 
 
 def test_sin_ninguna_oferta_no_se_envia_boletin(tmp_path, monkeypatch, aislado):
-    monkeypatch.setattr("boletin_empleos.cli.construir_fuentes", lambda: [FuenteFalsa("caida", [])])
+    monkeypatch.setattr(
+        "boletin_empleos.cli.construir_fuentes", lambda cfg: [FuenteFalsa("caida", [])]
+    )
     assert _correr(tmp_path, "--dry-run") == 2, "sin fuentes vivas no se envía boletín vacío"
     assert not list((tmp_path / "salida").glob("*.html"))
 
@@ -122,7 +127,7 @@ def test_sin_ninguna_oferta_no_se_envia_boletin(tmp_path, monkeypatch, aislado):
 def test_el_historial_evita_repetir_ofertas(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+        lambda cfg: [FuenteFalsa("falsa", [_oferta("f:1")])],
     )
     # Envío real simulado: la entrega escribe en disco en vez de usar SMTP.
     monkeypatch.setattr(
@@ -142,7 +147,7 @@ def test_dry_run_no_consume_las_ofertas_de_la_edicion_real(tmp_path, monkeypatch
     """
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+        lambda cfg: [FuenteFalsa("falsa", [_oferta("f:1")])],
     )
     assert _correr(tmp_path, "--dry-run") == 0
     assert _correr(tmp_path, "--dry-run") == 0, "la segunda vista previa ve la misma oferta"
@@ -152,7 +157,7 @@ def test_dry_run_no_consume_las_ofertas_de_la_edicion_real(tmp_path, monkeypatch
 def test_sin_credenciales_smtp_no_envia_ni_registra(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+        lambda cfg: [FuenteFalsa("falsa", [_oferta("f:1")])],
     )
     for variable in ("SMTP_HOST", "SMTP_USUARIO", "SMTP_CLAVE"):
         monkeypatch.delenv(variable, raising=False)
@@ -168,7 +173,9 @@ def test_sin_credenciales_smtp_no_consulta_fuentes_ni_ia(tmp_path, monkeypatch, 
         llamadas.append(True)
         return [FuenteFalsa("falsa", [_oferta("f:1")])]
 
-    monkeypatch.setattr("boletin_empleos.cli.construir_fuentes", _fuentes_que_registran_la_llamada)
+    monkeypatch.setattr(
+        "boletin_empleos.cli.construir_fuentes", lambda cfg: _fuentes_que_registran_la_llamada()
+    )
     for variable in ("SMTP_HOST", "SMTP_USUARIO", "SMTP_CLAVE"):
         monkeypatch.delenv(variable, raising=False)
     assert _correr(tmp_path) == 1
@@ -238,7 +245,7 @@ def _renderizar_que_falla(datos):
 def test_fallo_de_render_devuelve_1_y_no_registra_historial(tmp_path, monkeypatch, aislado):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+        lambda cfg: [FuenteFalsa("falsa", [_oferta("f:1")])],
     )
     # Entrega real simulada (sin SMTP) para que el fallo bajo prueba sea el del render.
     monkeypatch.setattr(
@@ -259,7 +266,9 @@ def test_historial_corrupto_devuelve_1_y_no_consulta_fuentes(tmp_path, monkeypat
         llamadas.append(True)
         return []
 
-    monkeypatch.setattr("boletin_empleos.cli.construir_fuentes", _fuentes_que_registran_la_llamada)
+    monkeypatch.setattr(
+        "boletin_empleos.cli.construir_fuentes", lambda cfg: _fuentes_que_registran_la_llamada()
+    )
     assert (
         main(
             [
@@ -287,7 +296,7 @@ def test_entrega_que_falla_en_modo_real_devuelve_1_y_no_registra_historial(
 ):
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+        lambda cfg: [FuenteFalsa("falsa", [_oferta("f:1")])],
     )
     monkeypatch.setattr(
         "boletin_empleos.cli._crear_entrega", lambda args, cfg, hoy: _EntregaQueFalla()
@@ -308,7 +317,7 @@ def test_la_edicion_que_se_publica_es_la_pagina_web_y_el_correo_sigue_siendo_cor
     """Dos piezas distintas: la web puede usar la identidad completa; el correo no."""
     monkeypatch.setattr(
         "boletin_empleos.cli.construir_fuentes",
-        lambda: [FuenteFalsa("falsa", [_oferta("f:1")])],
+        lambda cfg: [FuenteFalsa("falsa", [_oferta("f:1")])],
     )
     assert _correr(tmp_path, "--dry-run") == 0
 
@@ -320,3 +329,48 @@ def test_la_edicion_que_se_publica_es_la_pagina_web_y_el_correo_sigue_siendo_cor
     assert "logo-humboldt" in edicion
     assert "estilo.css" not in correo, "el correo no puede depender de una hoja externa"
     assert "logo-humboldt" in correo, "pero sí lleva el escudo, servido desde el sitio"
+
+
+# --- Dos carreras en el mismo programa ------------------------------------------
+
+RAIZ = Path(__file__).resolve().parents[1]
+
+
+def test_cada_carrera_tiene_su_configuracion_y_sus_carpetas():
+    from boletin_empleos.cli import _ruta_config, _rutas_de_datos
+
+    assert _ruta_config("industrial") == Path("programas") / "industrial.toml"
+
+    salida, historial = _rutas_de_datos("industrial")
+    assert salida == Path("datos") / "industrial" / "ediciones"
+    assert historial == Path("datos") / "industrial" / "historial.json"
+
+
+def test_las_fuentes_salen_de_la_configuracion_de_la_carrera():
+    """Remote OK y Remotive son bolsas de vacantes de tecnología: en el boletín de
+
+    Ingeniería Industrial solo gastarían tiempo."""
+    from boletin_empleos.cli import construir_fuentes
+    from boletin_empleos.config import cargar_config
+
+    software = construir_fuentes(cargar_config(RAIZ / "programas" / "software.toml"))
+    industrial = construir_fuentes(cargar_config(RAIZ / "programas" / "industrial.toml"))
+
+    assert {f.nombre for f in software} == {"spe", "magneto", "remotive", "remoteok"}
+    assert {f.nombre for f in industrial} == {"spe", "magneto"}
+
+
+def test_el_spe_de_cada_carrera_busca_sus_propios_cargos():
+    from boletin_empleos.cli import construir_fuentes
+    from boletin_empleos.config import cargar_config
+
+    spe = next(
+        f
+        for f in construir_fuentes(cargar_config(RAIZ / "programas" / "industrial.toml"))
+        if f.nombre == "spe"
+    )
+    cargos = [c.get("cargo") for c in spe._consultas if "cargo" in c]
+
+    assert "ingeniero industrial" in cargos
+    assert "desarrollador" not in cargos
+    assert {"departamento": "Quindio"} in spe._consultas, "la geografía es común"

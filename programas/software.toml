@@ -1,0 +1,81 @@
+# Boletín de empleos — Ingeniería de Software.
+# Lo que no está aquí se hereda de comun.toml.
+
+extiende = "comun.toml"
+
+clave = "software"
+programa = "Ingeniería de Software"
+
+destinatarios = ["coorproyeccioning@cue.edu.co"]
+remitente = "coorproyeccioning@cue.edu.co"
+asunto = "Boletín de empleos — Ingeniería de Software"
+
+[fuentes]
+# Ocupaciones con las que el SPE indexa estas vacantes.
+cargos_spe = [
+  "ingeniero de sistemas",
+  "desarrollador",
+  "programador",
+  "analista de sistemas",
+  "ingeniero de software",
+]
+
+[vocabulario]
+cargos = [
+  "desarrollador", "developer", "programador", "ingeniero de software",
+  "ingeniero de sistemas", "analista de sistemas", "analista de desarrollo",
+  # Formas femeninas de los cargos compuestos: la flexión automática solo alcanza
+  # al final del término, así que "ingeniero de sistemas" no cubre "ingeniera de
+  # sistemas". Las simples ("desarrollador" -> "desarrolladora") sí se cubren solas.
+  "ingeniera de software", "ingeniera de sistemas", "analista de tecnologia",
+  "backend", "back end", "frontend", "front end", "full stack", "fullstack",
+  "qa", "tester", "automatizacion de pruebas", "devops", "sre",
+  "ingeniero de datos", "data engineer", "desarrollador movil", "android", "ios",
+  "arquitecto de software", "soporte de aplicaciones",
+]
+tecnologias = [
+  "java", "python", "javascript", "typescript", "react", "angular", "vue",
+  "node", ".net", "c#", "php", "spring", "django", "laravel", "flutter",
+  "sql", "postgresql", "mysql", "mongodb", "docker", "kubernetes",
+  "aws", "azure", "git", "api rest", "microservicios",
+  # Variantes pegadas: el emparejamiento exige frontera de palabra, así que
+  # "react" NO casa dentro de "reactjs". Se listan como dato, que es la vía
+  # de ajuste prevista por el diseño.
+  "reactjs", "nodejs", "vuejs", "angularjs", "nestjs", "nextjs",
+]
+# Términos que descalifican aunque haya coincidencias tecnológicas.
+excluidos = [
+  "vendedor", "asesor comercial", "call center", "domiciliario",
+  "auxiliar de bodega", "mesero", "vigilante", "conductor",
+  "operario",
+  # Del primer boletín real (14/09/2026): coincidían con "desarrollador" o
+  # "ingeniero de sistemas" en el título o la descripción, pero son roles
+  # comerciales/de ventas o de mecanizado, no de software.
+  "desarrollador comercial", "desarrollo comercial", "desarrollador de negocios",
+  "business developer", "cnc",
+  # "desarrollador comercial" no cubre "Desarrollador/a comercial": la barra
+  # de género neutro rompe la coincidencia exacta de la frase, y el título
+  # solo ya suma relevancia por el cargo "desarrollador". Se vio de verdad en
+  # la corrida de vista previa de esta misma ronda (14/09/2026).
+  "desarrollador/a comercial",
+]
+
+# Términos que NO admiten sufijo de flexión española, PESE a ser sustantivos de agente.
+#
+# El emparejamiento flexiona (femenino y plural) para que "desarrollador" cubra
+# "Desarrolladora Backend", y decide quién se flexiona por MORFOLOGÍA: solo los
+# sustantivos de agente (-dor, -or, -ero, -ente, -ista...). Esa regla ya deja fuera
+# sola a las tecnologías —"docker", "angular", "android", "tester"— sin necesidad
+# de enumerarlas.
+#
+# Esta lista es solo para los casos en que la morfología acierta pero el resultado
+# colisiona igual, y SOLO surte efecto sobre `cargos` y `tecnologias`: sobre
+# `excluidos` se ignora a propósito, porque ahí negar la flexión abre agujeros en
+# vez de cerrarlos.
+#
+# Hoy está vacía. `conductor` estuvo aquí y hubo que sacarlo: vive en `excluidos`,
+# así que negarle la flexión dejaba pasar "Conductores"/"Conductora con manejo de
+# app Android" —ofertas de repartidor, altísima frecuencia en Colombia— mientras
+# seguía excluyendo el singular. El riesgo que lo justificaba (una oferta de
+# firmware que mencione "conductores eléctricos") es mucho menos frecuente.
+sin_flexion = []

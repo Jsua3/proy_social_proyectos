@@ -85,9 +85,9 @@ def test_r2_6_el_prompt_del_editorial_no_le_pide_al_modelo_que_mienta_sobre_la_v
 
 
 def test_el_contexto_dice_para_quien_y_para_que_es_el_boletin():
-    from boletin_empleos.enriquecimiento.contexto import CONTEXTO_INSTITUCIONAL
+    from boletin_empleos.enriquecimiento.contexto import contexto_institucional
 
-    texto = CONTEXTO_INSTITUCIONAL.lower()
+    texto = contexto_institucional("Ingeniería de Software").lower()
     for clave in (
         "proyección social",
         "egresados",
@@ -131,3 +131,24 @@ def test_el_resumen_le_prohibe_al_modelo_inventar():
     e.resumir([_evaluacion()])
 
     assert "no inventes" in capturado["prompt"].lower()
+
+
+def test_el_encargo_nombra_la_carrera_de_la_edicion():
+    from boletin_empleos.enriquecimiento.contexto import contexto_institucional
+
+    industrial = contexto_institucional("Ingeniería Industrial")
+
+    assert "Ingeniería Industrial" in industrial
+    assert "Ingeniería de Software" not in industrial
+    assert "Proyección Social" in industrial, "el encargo sigue siendo el mismo"
+
+
+def test_el_texto_fijo_no_habla_de_software_en_el_boletin_de_industrial():
+    """Sin clave de IA el editorial sale del texto fijo: no puede nombrar la
+
+    carrera equivocada."""
+    texto = EnriquecedorNulo("Ingeniería Industrial").editorial([_evaluacion()], {"incluidas": 1})
+
+    assert "software" not in texto.lower()
+    assert "Ingeniería Industrial" in texto
+    assert "vigentes a la fecha" in texto
