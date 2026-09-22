@@ -28,13 +28,20 @@
     <h1>176 vacantes para nuestros egresados</h1>
     <p>A continuación encontrará vacantes vigentes a la fecha, recogidas en fuentes verificadas y filtradas por pertinencia para los egresados de Ingeniería de Software.</p>
     <ul class="cifras">
-      <li class="cifra"><div class="cifra__valor">9.884</div><div class="cifra__nombre">ofertas revisadas</div></li>
+      <li class="cifra"><div class="cifra__valor">9.880</div><div class="cifra__nombre">ofertas revisadas</div></li>
       <li class="cifra"><div class="cifra__valor">176</div><div class="cifra__nombre">vacantes publicadas</div></li>
       <li class="cifra"><div class="cifra__valor">24</div><div class="cifra__nombre">del eje cafetero</div></li>
       <li class="cifra"><div class="cifra__valor">4</div><div class="cifra__nombre">portales consultados</div></li>
     </ul>
   </section>
-  <section class="seccion seccion--eje aparece">
+  <nav class="filtro aparece" aria-label="Filtrar las vacantes por lugar">
+      <button class="filtro__pastilla filtro__pastilla--activa" type="button" data-filtro="todas" aria-pressed="true">Todas <span class="filtro__cuenta">176</span></button>
+      <button class="filtro__pastilla" type="button" data-filtro="eje" aria-pressed="false">Quindío y eje cafetero <span class="filtro__cuenta">24</span></button>
+      <button class="filtro__pastilla" type="button" data-filtro="remoto-co" aria-pressed="false">Colombia — remoto <span class="filtro__cuenta">87</span></button>
+      <button class="filtro__pastilla" type="button" data-filtro="presencial-co" aria-pressed="false">Colombia — presencial e híbrido <span class="filtro__cuenta">60</span></button>
+      <button class="filtro__pastilla" type="button" data-filtro="internacional" aria-pressed="false">Remoto internacional <span class="filtro__cuenta">5</span></button>
+  </nav>
+  <section class="seccion seccion--eje aparece" id="eje" data-seccion="eje">
     <h2 class="seccion__titulo">Quindío y eje cafetero
       <span class="seccion__cuenta">24</span>
     </h2>
@@ -226,7 +233,7 @@
     </li>
     </ul>
   </section>
-  <section class="seccion aparece">
+  <section class="seccion aparece" id="remoto-co" data-seccion="remoto-co">
     <h2 class="seccion__titulo">Colombia — remoto
       <span class="seccion__cuenta">87</span>
     </h2>
@@ -886,7 +893,7 @@
     </li>
     </ul>
   </section>
-  <section class="seccion aparece">
+  <section class="seccion aparece" id="presencial-co" data-seccion="presencial-co">
     <h2 class="seccion__titulo">Colombia — presencial e híbrido
       <span class="seccion__cuenta">60</span>
     </h2>
@@ -1120,6 +1127,13 @@
       </div>
     </li>
       <li class="vacante">
+      <h3 class="vacante__titulo"><a href="https://go.computrabajo.com/go/gom?url=https%3a%2f%2fco.computrabajo.com%2fofertas-de-trabajo%2foferta-de-trabajo-de-ingeniero-de-sistemas-en-bucaramanga-85F124296833245D61373E686DCF3405" target="_blank" rel="noopener noreferrer">Ingeniero de Sistemas</a></h3>
+      <p class="vacante__meta">COMPUTRABAJO · BUCARAMANGA, SANTANDER · publicada 2026-09-02</p>
+      <div class="vacante__pie">
+        <a class="boton" href="https://go.computrabajo.com/go/gom?url=https%3a%2f%2fco.computrabajo.com%2fofertas-de-trabajo%2foferta-de-trabajo-de-ingeniero-de-sistemas-en-bucaramanga-85F124296833245D61373E686DCF3405" target="_blank" rel="noopener noreferrer">Ver oferta</a>
+      </div>
+    </li>
+      <li class="vacante">
       <h3 class="vacante__titulo"><a href="https://go.computrabajo.com/go/gom?url=https%3a%2f%2fco.computrabajo.com%2fofertas-de-trabajo%2foferta-de-trabajo-de-ingeniero-de-sistemas-en-tocancipa-580C6F5456ECFD9861373E686DCF3405" target="_blank" rel="noopener noreferrer">Ingeniero de Sistemas</a></h3>
       <p class="vacante__meta">COMPUTRABAJO · TOCANCIPÁ, CUNDINAMARCA · publicada 2026-09-01</p>
       <div class="vacante__pie">
@@ -1132,14 +1146,6 @@
       <div class="vacante__pie">
         <a class="boton" href="https://personas.serviciodeempleo.gov.co/detalle_oferta.aspx?sede_id=1626493868&amp;proceso_id=37&amp;dep_id=68" target="_blank" rel="noopener noreferrer">Ver oferta</a>
         <span class="salario">1.500.001 – 2.000.000 COP</span>
-      </div>
-    </li>
-      <li class="vacante">
-      <h3 class="vacante__titulo"><a href="https://go.computrabajo.com/go/gom?url=https%3a%2f%2fco.computrabajo.com%2fofertas-de-trabajo%2foferta-de-trabajo-de-ingeniero-de-sistemas-en-bucaramanga-E7E19FE6A94C0F7D61373E686DCF3405" target="_blank" rel="noopener noreferrer">Ingeniero de Sistemas</a></h3>
-      <p class="vacante__meta">COMPUTRABAJO · BUCARAMANGA, SANTANDER · publicada 2026-08-25</p>
-      <div class="vacante__pie">
-        <a class="boton" href="https://go.computrabajo.com/go/gom?url=https%3a%2f%2fco.computrabajo.com%2fofertas-de-trabajo%2foferta-de-trabajo-de-ingeniero-de-sistemas-en-bucaramanga-E7E19FE6A94C0F7D61373E686DCF3405" target="_blank" rel="noopener noreferrer">Ver oferta</a>
-        <span class="salario">2.000.001 – 3.000.000 COP</span>
       </div>
     </li>
       <li class="vacante">
@@ -1352,7 +1358,7 @@
     </li>
     </ul>
   </section>
-  <section class="seccion aparece">
+  <section class="seccion aparece" id="internacional" data-seccion="internacional">
     <h2 class="seccion__titulo">Remoto internacional
       <span class="seccion__cuenta">5</span>
     </h2>
