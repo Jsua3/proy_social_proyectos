@@ -334,3 +334,80 @@ def test_las_vacantes_propias_de_industrial_siguen_entrando(titulo):
     cfg = cargar_config(RAIZ / "programas" / "industrial.toml")
 
     assert _pasa_relevancia(titulo, cfg), titulo
+
+
+# --- Profesiones ajenas: medido sobre el boletín del 22/09/2026 -----------------
+# La profesora encontró una vacante de enfermería en el boletín de Industrial.
+# Al revisar la edición aparecieron trece del sector salud; estas piden una
+# profesión que nuestros egresados no tienen, y estas otras son trabajo de
+# ingeniería industrial en una empresa del sector, que sí les sirve.
+
+_PIDEN_OTRA_PROFESION = [
+    "Auxiliar de Enfermería Profesional en Seguridad y Salud en el Trabajo - Pereira",
+    "Analista de Calidad - Regente de farmacia, Pereira",
+    "Analista de compras - (Regente de farmacia)",
+    "coordinador de calidad - Quimico farmaceutico",
+    "coordinador de produccion - químico farmacéutico",
+    "Auditor de calidad - área de odontología",
+    "Auditor de calidad - Clinica Odontologica",
+    "Analista de Calidad Y Resolucion QRS -Abogado",
+]
+
+_SON_DEL_SECTOR_PERO_SIRVEN = [
+    "Analista de compras - Sector salud o farmacéutico",
+    "Analista de Compras - Sector farmaceutico",
+    "Analista de Inventarios - Sector Farmacéutico",
+    "Analista de inventarios - Salud o farmacéutico",
+]
+
+
+@pytest.mark.parametrize("titulo", _PIDEN_OTRA_PROFESION)
+def test_las_vacantes_que_piden_otra_profesion_quedan_fuera(titulo):
+    cfg = cargar_config(RAIZ / "programas" / "industrial.toml")
+
+    assert not _pasa_relevancia(titulo, cfg), titulo
+
+
+@pytest.mark.parametrize("titulo", _SON_DEL_SECTOR_PERO_SIRVEN)
+def test_trabajar_en_el_sector_salud_no_descalifica_la_vacante(titulo):
+    """El sector no es la profesión: comprar insumos para una farmacéutica es
+
+    trabajo de ingeniería industrial."""
+    cfg = cargar_config(RAIZ / "programas" / "industrial.toml")
+
+    assert _pasa_relevancia(titulo, cfg), titulo
+
+
+# --- Datos e IA: destino habitual de los egresados de software -----------------
+# El portal que recomendó la profesora publica sobre todo vacantes de datos e
+# inteligencia artificial, y el vocabulario no las reconocía: de ocho vacantes
+# suyas solo entraba una.
+
+_VACANTES_DE_DATOS = [
+    "Data Scientist with Gen AI experience",
+    "Científico de Datos Junior",
+    "Analista de datos",
+    "Ingeniero de Machine Learning",
+    "Desarrollador de Inteligencia Artificial",
+    "Analista de Business Intelligence",
+    "Ingeniero de Ciberseguridad",
+]
+
+_NO_SON_DE_SOFTWARE = [
+    "Analista de laboratorio de datos clínicos",
+    "Asesor comercial de soluciones de datos",
+]
+
+
+@pytest.mark.parametrize("titulo", _VACANTES_DE_DATOS)
+def test_las_vacantes_de_datos_e_ia_entran_al_boletin_de_software(titulo):
+    cfg = cargar_config(RAIZ / "programas" / "software.toml")
+
+    assert _pasa_relevancia(titulo, cfg), titulo
+
+
+@pytest.mark.parametrize("titulo", _NO_SON_DE_SOFTWARE)
+def test_ampliar_a_datos_no_abre_la_puerta_a_cualquier_cosa(titulo):
+    cfg = cargar_config(RAIZ / "programas" / "software.toml")
+
+    assert not _pasa_relevancia(titulo, cfg), titulo

@@ -124,6 +124,14 @@ def puntuar_relevancia(
     if any(contiene(completo, e) for e in vocabulario.excluidos):
         return 0.0
 
+    # Profesiones ajenas: SOLO en el título. La profesora encontró en el boletín
+    # "Auxiliar de Enfermería Profesional en Seguridad y Salud en el Trabajo":
+    # el cargo casaba de verdad, pero la vacante pide ser auxiliar de enfermería.
+    # Mirar la descripción aquí sería contraproducente —un ingeniero de procesos
+    # en una clínica sigue siendo ingeniero de procesos—.
+    if any(contiene(titulo, e) for e in vocabulario.excluidos_titulo):
+        return 0.0
+
     terminos = vocabulario.cargos + vocabulario.tecnologias
     if not terminos:
         return 0.0

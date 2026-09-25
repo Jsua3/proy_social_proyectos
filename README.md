@@ -41,7 +41,7 @@ uv run boletin --programa software --dry-run     # vista previa, sin enviar ni t
 uv run boletin --programa industrial --dry-run
 uv run boletin --programa software               # genera y envía (exige las variables SMTP_*)
 uv run python -m boletin_empleos.sitio           # arma el sitio con todas las carreras
-uv run pytest                                    # 314 pruebas, sin red
+uv run pytest                                    # 373 pruebas, sin red
 ```
 
 Sin `--programa` se asume `software`.
@@ -95,6 +95,15 @@ qué es la Proyección Social de esta universidad, a quién sirve el boletín, q
 cafetero y que no puede inventar datos. El modelo **no decide qué vacantes entran**: eso lo hace el
 núcleo con reglas auditables.
 
+## Profesiones ajenas
+
+La lista `excluidos_titulo` de `comun.toml` descarta las vacantes que piden **otra profesión**
+—enfermería, regencia de farmacia, odontología, derecho— y se mira **solo en el título**. La distinción
+importa: *«Analista de compras · sector farmacéutico»* es trabajo de ingeniería industrial en una
+empresa del sector y entra; *«Analista de compras (Regente de farmacia)»* pide un título que nuestros
+egresados no tienen y queda fuera. Mirar la descripción rompería esa distinción, porque ahí el sector
+aparece en todas partes.
+
 ## Prioridad geográfica
 
 La Coordinación está en Armenia, así que el boletín ordena las vacantes por cercanía:
@@ -128,6 +137,11 @@ tenemos derecho a usarla, y el boletín cita a todas en su pie.
 | Magneto365 | Publica `llms.txt` dirigido a asistentes de IA |
 | Remotive | API pública gratuita, con obligación de atribución |
 | RemoteOK | API pública gratuita, con obligación de atribución |
+| Keyrus | Portal de empleo propio de la empresa; `robots.txt` permite las vacantes públicas y su `Content-Signal` declara `search=yes, ai-input=yes`. Se lee su feed JSON, no el HTML |
+
+Un portal de empresa baja la vacante cuando llena el puesto, así que sus ofertas se marcan con
+`vigencia_verificada`: seguir publicadas **es** la prueba de que siguen abiertas, y su fecha de
+publicación —a veces de hace más de un año— no dice lo contrario. Un agregador no puede afirmar eso.
 
 **Excluidas a propósito:** elempleo.com prohíbe el scraping y la minería de datos en su `robots.txt`;
 Computrabajo bloquea el acceso automatizado; LinkedIn lo prohíbe en sus términos.

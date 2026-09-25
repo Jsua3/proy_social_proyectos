@@ -356,8 +356,10 @@ def test_las_fuentes_salen_de_la_configuracion_de_la_carrera():
     software = construir_fuentes(cargar_config(RAIZ / "programas" / "software.toml"))
     industrial = construir_fuentes(cargar_config(RAIZ / "programas" / "industrial.toml"))
 
-    assert {f.nombre for f in software} == {"spe", "magneto", "remotive", "remoteok"}
-    assert {f.nombre for f in industrial} == {"spe", "magneto"}
+    assert {f.nombre for f in software} == {"spe", "magneto", "remotive", "remoteok", "keyrus"}
+    assert {f.nombre for f in industrial} == {"spe", "magneto", "keyrus"}, (
+        "Keyrus queda por si publica consultoría de procesos; hoy no aporta ninguna"
+    )
 
 
 def test_el_spe_de_cada_carrera_busca_sus_propios_cargos():

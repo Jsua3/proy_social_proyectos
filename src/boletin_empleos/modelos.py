@@ -44,6 +44,10 @@ class Oferta(BaseModel):
 
     fecha_publicacion: date | None = None
     fecha_vencimiento: date | None = None
+    # La fuente garantiza que la vacante sigue abierta HOY. Lo ponen los
+    # portales de empresa, que bajan el aviso cuando llenan el puesto; un
+    # agregador no puede afirmarlo y deja este campo en False.
+    vigencia_verificada: bool = False
     meses_experiencia: int | None = None
     es_practica: bool = False
 
