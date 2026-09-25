@@ -13,7 +13,7 @@ asunto = "Boletín de empleos — Ingeniería Industrial"
 [fuentes]
 # Ingeniería Industrial no usa Remotive ni Remote OK: son bolsas de vacantes
 # de tecnología y solo gastarían tiempo de corrida.
-usar = ["spe", "magneto"]
+usar = ["spe", "magneto", "keyrus"]
 
 # Ocupaciones con las que el SPE indexa estas vacantes. Medidas contra su API el
 # 22/09/2026; al lado va cuántas vacantes tenía cada una ese día. Los términos

@@ -26,6 +26,7 @@ from boletin_empleos.enriquecimiento import crear_enriquecedor
 from boletin_empleos.entrega.consola import EntregaConsola
 from boletin_empleos.entrega.smtp import EntregaSMTP
 from boletin_empleos.fuentes.base import FuenteEmpleo
+from boletin_empleos.fuentes.keyrus import FuenteKeyrus
 from boletin_empleos.fuentes.magneto import FuenteMagneto
 from boletin_empleos.fuentes.remoteok import FuenteRemoteOK
 from boletin_empleos.fuentes.remotive import FuenteRemotive
@@ -47,6 +48,7 @@ def construir_fuentes(cfg: Config) -> list[FuenteEmpleo]:
         "magneto": lambda: FuenteMagneto(rutas=cfg.fuentes.rutas_magneto),
         "remotive": FuenteRemotive,
         "remoteok": FuenteRemoteOK,
+        "keyrus": FuenteKeyrus,
     }
     fuentes = []
     for nombre in cfg.fuentes.usar:

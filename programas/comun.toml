@@ -17,6 +17,11 @@ url_base = "https://jsua3.github.io/proy_social_proyectos"
 vacantes_en_correo = 10
 
 [fuentes]
+# Qué portales se consultan. Cada carrera puede recortar la lista en su archivo.
+# "keyrus" es el portal propio de una consultora de datos, recomendado por la
+# profesora el 24/09/2026: pocas vacantes, pero publicadas por quien contrata.
+usar = ["spe", "magneto", "remotive", "remoteok", "keyrus"]
+
 # Consultas que sirven para cualquier carrera: remoto nacional y los tres
 # departamentos del eje cafetero enteros. Los cargos propios van en `cargos_spe`
 # de cada programa. El nombre del departamento va SIN tilde: la API del SPE
@@ -122,3 +127,22 @@ otros_departamentos = [
   "tolima", "valle del cauca", "vaupes", "vichada",
 ]
 
+[vocabulario]
+# Profesiones ajenas a cualquiera de nuestras carreras. Se miran SOLO en el
+# título, nunca en la descripción: un ingeniero de procesos en una clínica sigue
+# siendo ingeniero de procesos, pero un "Auxiliar de Enfermería" no es para
+# nuestros egresados aunque el aviso también nombre seguridad y salud en el
+# trabajo. Salió del boletín del 22/09/2026, donde la profesora encontró
+# justamente esa vacante.
+#
+# Cada carrera define el resto de su vocabulario en su propio archivo.
+excluidos_titulo = [
+  "enfermeria", "enfermero", "auxiliar de enfermeria",
+  "regente de farmacia", "quimico farmaceutico", "farmaceuta",
+  "odontologia", "odontologica", "odontologico", "odontologo",
+  "medico", "medicina", "quimica farmaceutica",
+  "bacteriologo", "fisioterapeuta", "terapeuta", "nutricionista",
+  "psicologo", "trabajador social", "veterinario",
+  "abogado", "contador publico", "revisor fiscal",
+  "docente", "profesor",
+]

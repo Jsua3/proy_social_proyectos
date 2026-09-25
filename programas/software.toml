@@ -32,6 +32,15 @@ cargos = [
   "qa", "tester", "automatizacion de pruebas", "devops", "sre",
   "ingeniero de datos", "data engineer", "desarrollador movil", "android", "ios",
   "arquitecto de software", "soporte de aplicaciones",
+  # Datos, IA y ciberseguridad: hoy son destino habitual de los egresados, y el
+  # vocabulario no los reconocía. Salió de revisar el portal de Keyrus el
+  # 24/09/2026: de ocho vacantes suyas, siete se caían por no tener estos cargos.
+  "data scientist", "cientifico de datos", "cientifica de datos",
+  "analista de datos", "data analyst", "ingeniero de machine learning",
+  "ai engineer", "ingeniero de inteligencia artificial",
+  "desarrollador de inteligencia artificial", "business intelligence",
+  "ingeniero de ciberseguridad", "analista de ciberseguridad",
+  "analista de seguridad informatica", "ingeniero cloud", "ingeniero de la nube",
 ]
 tecnologias = [
   "java", "python", "javascript", "typescript", "react", "angular", "vue",
@@ -42,6 +51,11 @@ tecnologias = [
   # "react" NO casa dentro de "reactjs". Se listan como dato, que es la vía
   # de ajuste prevista por el diseño.
   "reactjs", "nodejs", "vuejs", "angularjs", "nestjs", "nextjs",
+  # Herramientas de datos e IA. Se evita la sigla suelta "ai": casa en
+  # cualquier parte; van las expresiones completas ("gen ai", "ai engineer").
+  "machine learning", "deep learning", "inteligencia artificial", "gen ai",
+  "big data", "etl", "spark", "databricks", "snowflake", "power bi", "tableau",
+  "pandas", "tensorflow", "pytorch", "scikit learn", "ciberseguridad",
 ]
 # Términos que descalifican aunque haya coincidencias tecnológicas.
 excluidos = [

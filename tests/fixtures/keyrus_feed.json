@@ -1,0 +1,392 @@
+{
+ "version": "https://jsonfeed.org/version/1.1",
+ "title": "Keyrus Colombia",
+ "home_page_url": "https://jobs.keyrus.co/jobs",
+ "feed_url": "https://jobs.keyrus.co/jobs.json",
+ "items": [
+  {
+   "id": "9515ed71-c38d-41b1-8472-ed887faaef0b",
+   "title": "Full Stack Developer (Hybris)",
+   "url": "https://jobs.keyrus.co/jobs/8304618-full-stack-developer-hybris",
+   "date_published": "2026-09-01T12:26:17-05:00",
+   "content_html": "<p><span><strong>Why Keyrus, Why Now!</strong></span></p><p><span><strong>Keyrus</strong> is an international group of <strong>2,800 consultants</strong> and experts across <strong>28 countries</stron",
+   "_jobposting": {
+    "@context": "http://schema.org/",
+    "@type": "JobPosting",
+    "title": "Full Stack Developer (Hybris)",
+    "description": "<p><span><strong>Why Keyrus, Why Now!</strong></span></p><p><span><strong>Keyrus</strong> is an international group of <strong>2,800 consultants</strong> and experts across <strong>28 countries</strong>, built on a single conviction: <strong>AI does not transform businesses. Architected intelligence does.</strong> For more than 30 years, we have been building the data foundations that make intelli",
+    "identifier": {
+     "@type": "PropertyValue",
+     "name": "Keyrus Colombia",
+     "value": 8304618
+    },
+    "datePosted": "2026-09-01T12:26:17-05:00",
+    "hiringOrganization": {
+     "@type": "Organization",
+     "name": "Keyrus Colombia",
+     "sameAs": "https://jobs.keyrus.co"
+    },
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": "Colombia",
+       "addressLocality": "Cualquier ciudad en Colombia",
+       "postalCode": null,
+       "addressCountry": "CO",
+       "addressRegion": "Colombia"
+      }
+     },
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": "Mexico",
+       "addressLocality": "Cualquier Ciudad en México",
+       "postalCode": "98440",
+       "addressCountry": "MX",
+       "addressRegion": "México"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "8c08b6de-804f-4065-86b7-bc61f932f879",
+   "title": "Data Scientist with Gen AI experience",
+   "url": "https://jobs.keyrus.co/jobs/8312699-data-scientist-with-gen-ai-experience",
+   "date_published": "2026-09-02T18:17:38-05:00",
+   "content_html": "<p><strong>Why Keyrus, Why Now!</strong></p><p><strong>Keyrus</strong><span> </span>is an international group of<span> </span><strong>2,800 consultants</strong><span> </span>and experts across<span> <",
+   "_jobposting": {
+    "@context": "http://schema.org/",
+    "@type": "JobPosting",
+    "title": "Data Scientist with Gen AI experience",
+    "description": "<p><strong>Why Keyrus, Why Now!</strong></p><p><strong>Keyrus</strong><span> </span>is an international group of<span> </span><strong>2,800 consultants</strong><span> </span>and experts across<span> </span><strong>28 countries</strong>, built on a single conviction:<span> </span><strong>AI does not transform businesses. Architected intelligence does.</strong><span> </span>For more than 30 years, w",
+    "identifier": {
+     "@type": "PropertyValue",
+     "name": "Keyrus Colombia",
+     "value": 8312699
+    },
+    "datePosted": "2026-09-02T18:17:38-05:00",
+    "hiringOrganization": {
+     "@type": "Organization",
+     "name": "Keyrus Colombia",
+     "sameAs": "https://jobs.keyrus.co"
+    },
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": null,
+       "addressLocality": "Bogotá",
+       "postalCode": "111061",
+       "addressCountry": "CO",
+       "addressRegion": "Colombia"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "9dba5376-fc98-46b5-a9b6-11b896e15cd7",
+   "title": "MarTech, CX & AI Consulting Intern",
+   "url": "https://jobs.keyrus.co/jobs/8274519-martech-cx-ai-consulting-intern",
+   "date_published": "2026-08-26T09:24:45-05:00",
+   "content_html": "<p><strong>Why Keyrus, Why Now!</strong></p><p><strong>Keyrus</strong><span> </span>is an international group of<span> </span><strong>2,800 consultants</strong><span> </span>and experts across<span> <",
+   "_jobposting": {
+    "@context": "http://schema.org/",
+    "@type": "JobPosting",
+    "title": "MarTech, CX & AI Consulting Intern",
+    "description": "<p><strong>Why Keyrus, Why Now!</strong></p><p><strong>Keyrus</strong><span> </span>is an international group of<span> </span><strong>2,800 consultants</strong><span> </span>and experts across<span> </span><strong>28 countries</strong>, built on a single conviction:<span> </span><strong>AI does not transform businesses. Architected intelligence does.</strong><span> </span>For more than 30 years, w",
+    "identifier": {
+     "@type": "PropertyValue",
+     "name": "Keyrus Colombia",
+     "value": 8274519
+    },
+    "datePosted": "2026-08-26T09:24:45-05:00",
+    "hiringOrganization": {
+     "@type": "Organization",
+     "name": "Keyrus Colombia",
+     "sameAs": "https://jobs.keyrus.co"
+    },
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": null,
+       "addressLocality": "Medellín",
+       "postalCode": "050012",
+       "addressCountry": "CO",
+       "addressRegion": "Colombia"
+      }
+     },
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": "Colombia",
+       "addressLocality": "Cualquier ciudad en Colombia",
+       "postalCode": null,
+       "addressCountry": "CO",
+       "addressRegion": "Colombia"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "f82106ba-b1d4-415d-ae45-146766be2fa2",
+   "title": "Forward Deployed AI Engineer – Architect of Intelligence",
+   "url": "https://jobs.keyrus.co/jobs/8236699-forward-deployed-ai-engineer-architect-of-intelligence",
+   "date_published": "2026-08-18T09:10:46-05:00",
+   "content_html": "<p><strong>Why Keyrus, Why Now!</strong></p><p><strong>Keyrus</strong><span> </span>is an international group of<span> </span><strong>2,800 consultants</strong><span> </span>and experts across<span> <",
+   "_jobposting": {
+    "@context": "http://schema.org/",
+    "@type": "JobPosting",
+    "title": "Forward Deployed AI Engineer – Architect of Intelligence",
+    "description": "<p><strong>Why Keyrus, Why Now!</strong></p><p><strong>Keyrus</strong><span> </span>is an international group of<span> </span><strong>2,800 consultants</strong><span> </span>and experts across<span> </span><strong>28 countries</strong>, built on a single conviction:<span> </span><strong>AI does not transform businesses. Architected intelligence does.</strong><span> </span>For more than 30 years, w",
+    "identifier": {
+     "@type": "PropertyValue",
+     "name": "Keyrus Colombia",
+     "value": 8236699
+    },
+    "datePosted": "2026-08-18T09:10:46-05:00",
+    "hiringOrganization": {
+     "@type": "Organization",
+     "name": "Keyrus Colombia",
+     "sameAs": "https://jobs.keyrus.co"
+    },
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": "Colombia",
+       "addressLocality": "Cualquier ciudad en Colombia",
+       "postalCode": null,
+       "addressCountry": "CO",
+       "addressRegion": "Colombia"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "9b76f9de-73cc-4141-8106-d837aba7d93d",
+   "title": "Forward Deployed AI & Data Practice Lead",
+   "url": "https://jobs.keyrus.co/jobs/8109487-forward-deployed-ai-data-practice-lead",
+   "date_published": "2026-07-22T08:44:50-05:00",
+   "content_html": "<p><strong>Why Keyrus, Why Now!</strong></p><p>Keyrus is an international group of 2,800 consultants and experts across 28 countries, built on a single conviction: AI does not transform businesses. Ar",
+   "_jobposting": {
+    "@context": "http://schema.org/",
+    "@type": "JobPosting",
+    "title": "Forward Deployed AI & Data Practice Lead",
+    "description": "<p><strong>Why Keyrus, Why Now!</strong></p><p>Keyrus is an international group of 2,800 consultants and experts across 28 countries, built on a single conviction: AI does not transform businesses. Architected intelligence does. For more than 30 years, we have been building the data foundations that make intelligent systems work — designing the Operating System of the intelligent enterprise, where",
+    "identifier": {
+     "@type": "PropertyValue",
+     "name": "Keyrus Colombia",
+     "value": 8109487
+    },
+    "datePosted": "2026-07-22T08:44:50-05:00",
+    "hiringOrganization": {
+     "@type": "Organization",
+     "name": "Keyrus Colombia",
+     "sameAs": "https://jobs.keyrus.co"
+    },
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": null,
+       "addressLocality": "Bogotá",
+       "postalCode": "111061",
+       "addressCountry": "CO",
+       "addressRegion": "Colombia"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "2826ce75-86ad-488e-a44e-add9dbfa33d8",
+   "title": "Talent Pool - Keyrus LATAM",
+   "url": "https://jobs.keyrus.co/jobs/5813631-talent-pool-keyrus-latam",
+   "date_published": "2025-04-14T13:45:55-05:00",
+   "content_html": "<h4><span>TALENT</span> <span>POOL</span> <span>|</span> <span>KEYRUS</span> <span>LATAM</span></h4><p><span>En</span> <span>Keyrus</span> <span>creemos</span> <span>que</span> <span>el</span> <span>f",
+   "_jobposting": {
+    "@context": "http://schema.org/",
+    "@type": "JobPosting",
+    "title": "Talent Pool - Keyrus LATAM",
+    "description": "<h4><span>TALENT</span> <span>POOL</span> <span>|</span> <span>KEYRUS</span> <span>LATAM</span></h4><p><span>En</span> <span>Keyrus</span> <span>creemos</span> <span>que</span> <span>el</span> <span>futuro</span> <span>pertenece</span> <span>a</span> <span>las</span> <span>organizaciones</span> <span>capaces</span> <span>de</span> <span>convertir</span> <span>la</span> <span>inteligencia</span> <s",
+    "identifier": {
+     "@type": "PropertyValue",
+     "name": "Keyrus Colombia",
+     "value": 5813631
+    },
+    "datePosted": "2025-04-14T13:45:55-05:00",
+    "hiringOrganization": {
+     "@type": "Organization",
+     "name": "Keyrus Colombia",
+     "sameAs": "https://jobs.keyrus.co"
+    },
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": "Colombia",
+       "addressLocality": "Cualquier ciudad en Colombia",
+       "postalCode": null,
+       "addressCountry": "CO",
+       "addressRegion": "Colombia"
+      }
+     },
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": "Mexico",
+       "addressLocality": "Cualquier Ciudad en México",
+       "postalCode": "98440",
+       "addressCountry": "MX",
+       "addressRegion": "México"
+      }
+     },
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": null,
+       "addressLocality": "Guadalajara",
+       "postalCode": "44790",
+       "addressCountry": "MX",
+       "addressRegion": "México"
+      }
+     },
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": null,
+       "addressLocality": "Monterrey",
+       "postalCode": "64490",
+       "addressCountry": "MX",
+       "addressRegion": "México"
+      }
+     },
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": "Argentina",
+       "addressLocality": "Cualquier Ciudad en Argentina",
+       "postalCode": null,
+       "addressCountry": "AR",
+       "addressRegion": null
+      }
+     },
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": null,
+       "addressLocality": "Lima",
+       "postalCode": "15082",
+       "addressCountry": "PE",
+       "addressRegion": null
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "232de1a7-19ab-49e8-9ca0-237567b369ed",
+   "title": "Interns Program Top 1% - Práctica Universitaria",
+   "url": "https://jobs.keyrus.co/jobs/3349811-interns-program-top-1-practica-universitaria",
+   "date_published": "2023-11-10T13:59:00-05:00",
+   "content_html": "<p><strong>Why Keyrus, Why Now!</strong></p><p>Keyrus is an international group of 2,800 consultants and experts across 28 countries, built on a single conviction: AI does not transform businesses. Ar",
+   "_jobposting": {
+    "@context": "http://schema.org/",
+    "@type": "JobPosting",
+    "title": "Interns Program Top 1% - Práctica Universitaria",
+    "description": "<p><strong>Why Keyrus, Why Now!</strong></p><p>Keyrus is an international group of 2,800 consultants and experts across 28 countries, built on a single conviction: AI does not transform businesses. Architected intelligence does. For more than 30 years, we have been building the data foundations that make intelligent systems work — designing the Operating System of the intelligent enterprise, where",
+    "identifier": {
+     "@type": "PropertyValue",
+     "name": "Keyrus Colombia",
+     "value": 3349811
+    },
+    "datePosted": "2023-11-10T13:59:00-05:00",
+    "hiringOrganization": {
+     "@type": "Organization",
+     "name": "Keyrus Colombia",
+     "sameAs": "https://jobs.keyrus.co"
+    },
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": "Colombia",
+       "addressLocality": "Cualquier ciudad en Colombia",
+       "postalCode": null,
+       "addressCountry": "CO",
+       "addressRegion": "Colombia"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "156ab8f3-931a-4932-8dbc-67e82dae80c4",
+   "title": "EPM Consultant",
+   "url": "https://jobs.keyrus.co/jobs/3205677-epm-consultant",
+   "date_published": "2023-09-25T15:24:28-05:00",
+   "content_html": "<p><strong>Why Keyrus, Why Now!</strong></p><p><strong>Keyrus</strong><span> </span>is an international group of<span> </span><strong>2,800 consultants</strong><span> </span>and experts across<span> <",
+   "_jobposting": {
+    "@context": "http://schema.org/",
+    "@type": "JobPosting",
+    "title": "EPM Consultant",
+    "description": "<p><strong>Why Keyrus, Why Now!</strong></p><p><strong>Keyrus</strong><span> </span>is an international group of<span> </span><strong>2,800 consultants</strong><span> </span>and experts across<span> </span><strong>28 countries</strong>, built on a single conviction:<span> </span><strong>AI does not transform businesses. Architected intelligence does.</strong><span> </span>For more than 30 years, w",
+    "identifier": {
+     "@type": "PropertyValue",
+     "name": "Keyrus Colombia",
+     "value": 3205677
+    },
+    "datePosted": "2023-09-25T15:24:28-05:00",
+    "hiringOrganization": {
+     "@type": "Organization",
+     "name": "Keyrus Colombia",
+     "sameAs": "https://jobs.keyrus.co"
+    },
+    "jobLocation": [
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": "Colombia",
+       "addressLocality": "Cualquier ciudad en Colombia",
+       "postalCode": null,
+       "addressCountry": "CO",
+       "addressRegion": "Colombia"
+      }
+     },
+     {
+      "@type": "Place",
+      "address": {
+       "@type": "PostalAddress",
+       "streetAddress": "Argentina",
+       "addressLocality": "Cualquier Ciudad en Argentina",
+       "postalCode": null,
+       "addressCountry": "AR",
+       "addressRegion": null
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

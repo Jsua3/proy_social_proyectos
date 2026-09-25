@@ -272,3 +272,68 @@ def test_vigencia_usa_la_antiguedad_si_no_hay_vencimiento():
 def test_vigencia_acepta_cuando_no_hay_ninguna_fecha():
     """Sin información no se castiga: el enlace se verificará después."""
     assert esta_vigente(_oferta("Dev"), HOY, 30)[0] is True
+
+
+# --- Profesiones ajenas: se excluyen SOLO por el título --------------------------
+
+
+def test_una_profesion_ajena_en_el_titulo_anula_la_oferta():
+    """La profesora encontró en el boletín «Auxiliar de Enfermería Profesional en
+
+    Seguridad y Salud en el Trabajo». El cargo casaba de verdad, pero la vacante
+    pide ser auxiliar de enfermería: no es para nuestros egresados."""
+    vocabulario = Vocabulario(
+        cargos=["profesional en seguridad y salud en el trabajo"],
+        excluidos_titulo=["enfermeria", "regente de farmacia"],
+    )
+    oferta = _oferta(
+        "Auxiliar de Enfermería Profesional en Seguridad y Salud en el Trabajo - Pereira",
+        "Se requiere para el área de salud ocupacional de la clínica.",
+    )
+
+    assert puntuar_relevancia(oferta, vocabulario) == 0.0
+
+
+def test_la_profesion_ajena_en_la_DESCRIPCION_no_descarta_nada():
+    """Un ingeniero de procesos en una clínica sigue siendo ingeniero de procesos.
+
+    Por eso esta lista mira el título y no el cuerpo: ahí el sector aparece todo
+    el tiempo sin ser un requisito de profesión."""
+    vocabulario = Vocabulario(
+        cargos=["ingeniero de procesos"],
+        excluidos_titulo=["enfermeria"],
+    )
+    oferta = _oferta(
+        "Ingeniero de procesos",
+        "Mejorará los procesos del servicio de enfermería de la clínica.",
+    )
+
+    assert puntuar_relevancia(oferta, vocabulario) > 0.0
+
+
+def test_sin_lista_de_profesiones_ajenas_nada_cambia():
+    """La lista es opcional: quien no la use ve el filtro de siempre."""
+    vocabulario = Vocabulario(cargos=["analista de calidad"])
+
+    assert puntuar_relevancia(_oferta("Analista de calidad", "x"), vocabulario) > 0.0
+
+
+def test_una_vacante_que_la_empresa_sigue_publicando_no_vence_por_antigua():
+    """Los portales de empresa bajan el aviso cuando llenan el puesto; por eso
+
+    seguir publicada vale más que la fecha en que se publicó."""
+    vieja = _oferta("Talent Pool", "x", fecha_publicacion=date(2025, 4, 14))
+    del_portal = vieja.model_copy(update={"vigencia_verificada": True})
+
+    assert esta_vigente(vieja, date(2026, 9, 24), 30)[0] is False
+    assert esta_vigente(del_portal, date(2026, 9, 24), 30)[0] is True
+
+
+def test_un_vencimiento_declarado_manda_incluso_sobre_la_fuente():
+    vencida = _oferta(
+        "Talent Pool",
+        "x",
+        fecha_vencimiento=date(2026, 9, 1),
+    ).model_copy(update={"vigencia_verificada": True})
+
+    assert esta_vigente(vencida, date(2026, 9, 24), 30)[0] is False

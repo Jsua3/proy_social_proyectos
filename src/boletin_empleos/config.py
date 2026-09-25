@@ -10,6 +10,9 @@ class Vocabulario(BaseModel):
     cargos: list[str] = Field(default_factory=list)
     tecnologias: list[str] = Field(default_factory=list)
     excluidos: list[str] = Field(default_factory=list)
+    # Profesiones ajenas al programa. Se miran SOLO en el título: en la
+    # descripción el sector aparece a cada rato sin ser un requisito.
+    excluidos_titulo: list[str] = Field(default_factory=list)
     # Términos que no admiten flexión: nombres propios de tecnología que, al
     # recibir sufijo, chocan con palabras españolas reales (ver config.toml).
     sin_flexion: list[str] = Field(default_factory=list)
