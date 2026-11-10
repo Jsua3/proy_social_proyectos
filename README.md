@@ -22,7 +22,7 @@ publica la edición en el sitio y la deja además como archivo descargable de la
 Boletín de empleos → la última corrida → Artifacts*. Se hace así porque las credenciales del correo
 institucional aún no están entregadas.
 
-En el índice del sitio, cada edición dice si fue *enviada a la Coordinación* o si es una *vista previa*.
+En el sitio, la edición publicada dice si fue *enviada a la Coordinación* o si es una *vista previa*.
 Decir lo contrario sería falso: hasta el primer envío real, nadie las ha recibido.
 
 **Para pasar a envío real**, sin tocar una sola línea de código:
@@ -63,12 +63,14 @@ vería el correo cortado. Por eso se reparte en dos:
 
 - **El correo** lleva las vacantes más pertinentes (`vacantes_en_correo` en `config.toml`, hoy 10) y un
   enlace a la edición completa. Pesa unas decenas de kilobytes.
-- **El sitio** guarda cada edición entera, con su fecha, en
+- **El sitio** muestra solo la última edición de cada carrera, en
   `https://jsua3.github.io/proy_social_proyectos`. Se reconstruye en cada corrida a partir de las
-  ediciones versionadas en `datos/ediciones/`.
+  ediciones versionadas en `datos/<carrera>/ediciones/`. Las anteriores siguen en esa carpeta, pero el
+  sitio no las publica.
 
-Ese archivo fechado es además el rastro que pide el CNA para el seguimiento a la empleabilidad
-(Acuerdo 01 de 2025, Factor 12, Características 39 y 40).
+**El repositorio es público.** Dejar de publicar las ediciones anteriores no las borra: siguen visibles
+en `datos/` y en el historial de git. El seguimiento a la empleabilidad que pide el CNA (Acuerdo 01 de
+2025, Factor 12, Características 39 y 40) queda registrado ahí, no en el sitio.
 
 Si se borra `url_base` de `config.toml`, no hay enlace y el correo vuelve a llevar el boletín completo.
 
