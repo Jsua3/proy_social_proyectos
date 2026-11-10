@@ -1,15 +1,15 @@
-"""Sitio público: el archivo histórico de ediciones, carrera por carrera.
+"""Sitio público: la edición más reciente de cada carrera.
 
 El correo a la Coordinación solo lleva las vacantes más pertinentes, porque Gmail
 recorta los mensajes de más de unos 102 KB. La edición completa se publica aquí y
-el correo la enlaza. De paso, una lista de ediciones fechadas es el rastro que el
-CNA pide para el seguimiento a la empleabilidad (Acuerdo 01 de 2025, Factor 12).
+el correo la enlaza. Solo se publica la última: las anteriores siguen en el
+repositorio (datos/<carrera>/ediciones), pero el sitio no las sirve.
 
 Estructura publicada:
 
     index.html                       portada con las carreras
     estilo.css · logo · movimiento   compartidos por todas
-    <clave>/index.html               ediciones de esa carrera
+    <clave>/index.html               la última edición de esa carrera
     <clave>/ediciones/AAAA-MM-DD.html
 
 Toca disco, no red: por eso vive fuera del núcleo.
@@ -103,7 +103,11 @@ def construir_sitio(programas: list[ProgramaSitio], destino: Path) -> dict[str, 
 
 
 def _publicar_carrera(programa: ProgramaSitio, destino: Path) -> list[date]:
-    fechas = sorted(_ediciones(programa.ediciones), reverse=True)
+    """Publica únicamente la edición más reciente.
+
+    Las anteriores no se copian al sitio: se quedan en el repositorio.
+    """
+    fechas = sorted(_ediciones(programa.ediciones), reverse=True)[:1]
     enviadas = _fechas_enviadas(programa.historial)
 
     carpeta = destino / programa.clave
@@ -202,7 +206,7 @@ def _indice(
         titulo=f"Boletín de empleos — {programa.programa}",
         subtitulo=f"{programa.programa} · Proyección Social",
         descripcion=(
-            f"Archivo de ediciones del boletín quincenal de empleos para egresados de "
+            f"Última edición del boletín quincenal de empleos para egresados de "
             f"{programa.programa} de la {INSTITUCION}."
         ),
         cuerpo=cuerpo,
@@ -215,7 +219,7 @@ def _portada(resumen: list[tuple[ProgramaSitio, list[date]]]) -> str:
     tarjetas = []
     for programa, fechas in resumen:
         if fechas:
-            detalle = f"{len(fechas)} ediciones · última, {en_palabras(fechas[0])}"
+            detalle = f"Última edición · {en_palabras(fechas[0])}"
         else:
             detalle = "Todavía no hay ediciones publicadas"
         tarjetas.append(

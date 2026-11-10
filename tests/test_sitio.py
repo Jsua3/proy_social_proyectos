@@ -1,10 +1,11 @@
-"""El sitio público: el archivo histórico de ediciones de todas las carreras.
+"""El sitio público: solo la edición más reciente de cada carrera.
 
-El correo solo lleva las vacantes más pertinentes; la edición completa vive aquí.
-Además es el rastro con fecha que el CNA pide para el seguimiento a egresados.
+Las anteriores siguen en el repositorio, pero no se publican. El correo enlaza a
+esa edición completa.
 """
 
 import json
+from datetime import date
 from pathlib import Path
 
 from selectolax.parser import HTMLParser
@@ -68,7 +69,7 @@ def test_la_portada_lleva_a_las_dos_carreras(tmp_path):
     assert "Ingeniería Industrial" in portada
 
 
-def test_el_indice_de_una_carrera_va_de_la_mas_nueva_a_la_mas_vieja(tmp_path):
+def test_el_indice_muestra_solo_la_edicion_mas_reciente(tmp_path):
     programa = _carrera(
         tmp_path,
         "software",
@@ -84,17 +85,46 @@ def test_el_indice_de_una_carrera_va_de_la_mas_nueva_a_la_mas_vieja(tmp_path):
         for a in HTMLParser(indice).css("a")
         if "ediciones/" in (a.attributes.get("href") or "")
     ]
-    assert enlaces == [
-        "ediciones/2026-10-01.html",
-        "ediciones/2026-09-15.html",
-        "ediciones/2026-09-01.html",
-    ]
+    assert enlaces == ["ediciones/2026-10-01.html"], "las anteriores no aparecen en la lista"
+
+
+def test_las_ediciones_anteriores_no_se_publican(tmp_path):
+    """Ocultas de verdad, no solo fuera de la lista: ni siquiera se copian al sitio."""
+    programa = _carrera(
+        tmp_path,
+        "software",
+        "Ingeniería de Software",
+        {"2026-09-01": "<html>vieja</html>", "2026-10-01": "<html>nueva</html>"},
+    )
+
+    publicadas = construir_sitio([programa], tmp_path / "sitio")
+
+    carpeta = tmp_path / "sitio" / "software" / "ediciones"
+    assert (carpeta / "2026-10-01.html").exists()
+    assert not (carpeta / "2026-09-01.html").exists()
+    assert publicadas["software"] == [date(2026, 10, 1)]
+
+
+def test_la_portada_no_revela_cuantas_ediciones_hubo(tmp_path):
+    programa = _carrera(
+        tmp_path,
+        "software",
+        "Ingeniería de Software",
+        {f: "<html></html>" for f in ("2026-09-01", "2026-09-15", "2026-10-01")},
+    )
+
+    construir_sitio([programa], tmp_path / "sitio")
+
+    portada = (tmp_path / "sitio" / "index.html").read_text("utf-8")
+    assert "Última edición" in portada
+    assert "3 ediciones" not in portada
 
 
 def test_distingue_las_ediciones_enviadas_de_las_vistas_previas(tmp_path):
     """Mientras no haya credenciales de correo, el sitio se llena de vistas previas.
 
-    Decir que se enviaron sería falso: nadie las recibió."""
+    Decir que se enviaron sería falso: nadie las recibió. Aquí la única visible es
+    la que sí se envió, así que la insignia dice exactamente eso."""
     programa = _carrera(
         tmp_path,
         "software",
@@ -106,8 +136,25 @@ def test_distingue_las_ediciones_enviadas_de_las_vistas_previas(tmp_path):
     construir_sitio([programa], tmp_path / "sitio")
 
     texto = _texto(tmp_path / "sitio" / "software" / "index.html").lower()
-    assert "vista previa" in texto
     assert "enviada" in texto
+    assert "vista previa" not in texto
+
+
+def test_la_ultima_sin_enviar_es_vista_previa_aunque_una_anterior_si_lo_fue(tmp_path):
+    """Que una edición vieja sí se enviara no vuelve enviada a la que sigue en vista previa."""
+    programa = _carrera(
+        tmp_path,
+        "software",
+        "Ingeniería de Software",
+        {"2026-09-15": "<html></html>", "2026-10-01": "<html></html>"},
+        enviadas=("2026-09-15",),
+    )
+
+    construir_sitio([programa], tmp_path / "sitio")
+
+    texto = _texto(tmp_path / "sitio" / "software" / "index.html").lower()
+    assert "vista previa" in texto
+    assert "enviada" not in texto
 
 
 def test_sin_historial_todas_son_vistas_previas(tmp_path):
