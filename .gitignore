@@ -49,3 +49,6 @@ sitio/
 datos/sitio-local/
 datos/vista/
 datos/historial-vista.json
+
+# Vista previa del boletín semestral (se regenera con `semestral armar`)
+salida/
