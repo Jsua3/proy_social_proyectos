@@ -123,6 +123,7 @@ figcaption { margin-top: .35rem; font-size: .78rem; color: var(--texto-suave); }
 }
 .proyecto img, .proyecto__sin-foto { width: 120px; height: 120px; object-fit: cover; border-radius: 4px; }
 .proyecto__sin-foto { background: var(--linea); }
+.proyectos--sin-fotos .proyecto { grid-template-columns: 1fr; }
 .proyecto__nombre { font: 700 1.1rem/1.25 var(--texto-base); color: var(--azul); }
 .proyecto__meta {
   margin: .3rem 0 .35rem;

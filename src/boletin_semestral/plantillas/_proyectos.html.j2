@@ -1,9 +1,10 @@
-  <ul class="proyectos">
+{% set con_fotos = s.seccion.proyectos | selectattr('foto') | list %}
+  <ul class="proyectos{% if not con_fotos %} proyectos--sin-fotos{% endif %}">
 {% for proyecto in s.seccion.proyectos %}
     <li class="proyecto">
 {% if proyecto.foto %}
       <img src="fotos/{{ proyecto.foto }}" alt="">
-{% else %}
+{% elif con_fotos %}
       <span class="proyecto__sin-foto"></span>
 {% endif %}
       <div>

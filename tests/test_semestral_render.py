@@ -77,6 +77,16 @@ def test_textos_con_caracteres_especiales(carpeta_edicion):
     assert HTMLParser(html).css_first(".seccion--texto .cuerpo em.manuscrita") is None
 
 
+def test_proyectos_sin_fotos_no_dibujan_huecos(carpeta_edicion):
+    def sin_fotos(datos):
+        del datos["secciones"][2]["proyectos"][0]["foto"]
+
+    html = HTMLParser(renderizar(_edicion_con(carpeta_edicion, sin_fotos), Modo.FINAL))
+
+    assert html.css(".proyecto__sin-foto") == []
+    assert html.css_first(".proyectos--sin-fotos") is not None
+
+
 def test_manuscrita_escapa_y_marca():
     assert str(manuscrita("<b>*hola*</b>")) == '&lt;b&gt;<em class="manuscrita">hola</em>&lt;/b&gt;'
 
