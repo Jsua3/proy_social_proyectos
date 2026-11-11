@@ -8,6 +8,7 @@ import json
 from datetime import date
 from pathlib import Path
 
+from conftest import edicion_publicada
 from selectolax.parser import HTMLParser
 
 from boletin_empleos.sitio import ProgramaSitio, construir_sitio, main, programas_desde
@@ -249,3 +250,26 @@ def test_el_comando_construye_el_sitio_y_devuelve_cero(tmp_path):
     assert codigo == 0
     assert (tmp_path / "sitio" / "index.html").exists()
     assert (tmp_path / "sitio" / "software" / "ediciones" / "2026-09-15.html").exists()
+
+
+def test_la_portada_enlaza_al_boletin_semestral(tmp_path):
+    """Los dos flujos publican el sitio entero: la sección semestral debe ir en los dos."""
+    programas = [_carrera(tmp_path, "software", "Ingeniería de Software", {})]
+    semestral = tmp_path / "semestral"
+    edicion_publicada(semestral, "2026-2", 8)
+
+    construir_sitio(programas, tmp_path / "sitio", semestral=semestral)
+
+    portada = (tmp_path / "sitio" / "index.html").read_text(encoding="utf-8")
+    assert 'href="semestral/index.html"' in portada
+    assert "Vol. 8 · Diciembre 2026" in portada
+    assert (tmp_path / "sitio" / "semestral" / "vol-8" / "index.html").is_file()
+
+
+def test_sin_carpeta_semestral_el_sitio_queda_igual(tmp_path):
+    programas = [_carrera(tmp_path, "software", "Ingeniería de Software", {})]
+
+    construir_sitio(programas, tmp_path / "sitio")
+
+    assert not (tmp_path / "sitio" / "semestral").exists()
+    assert "Boletín semestral" not in _texto(tmp_path / "sitio" / "index.html")

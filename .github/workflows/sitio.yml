@@ -12,6 +12,8 @@ on:
       - "src/boletin_empleos/sitio.py"
       - "src/boletin_empleos/render/**"
       - "programas/**"
+      - "src/boletin_semestral/**"
+      - "datos/semestral/**"
       - ".github/workflows/sitio.yml"
   workflow_dispatch:
 

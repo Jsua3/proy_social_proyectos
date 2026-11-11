@@ -101,6 +101,28 @@ def carpeta_edicion(tmp_path) -> Path:
     return carpeta
 
 
+def edicion_publicada(
+    base: Path, semestre: str, volumen: int, *, aprobada: bool = True, con_publicada: bool = True
+) -> Path:
+    """Deja en disco una edición como la dejaría `semestral armar`: TOML y, si toca, publicada/."""
+    carpeta = base / semestre
+    carpeta.mkdir(parents=True)
+    anio, mitad = semestre.split("-")
+    fecha = f"{'Junio' if mitad == '1' else 'Diciembre'} {anio}"
+    (carpeta / "edicion.toml").write_text(
+        f'volumen = {volumen}\nsemestre = "{semestre}"\nfecha = "{fecha}"\n'
+        f'estado = "{"aprobada" if aprobada else "borrador"}"\nsecciones = []\n\n'
+        f'[portada]\ntitular = "Titular del Vol. {volumen}"\n\n[editorial]\ncuerpo = "Texto."\n',
+        encoding="utf-8",
+    )
+    if con_publicada:
+        publicada = carpeta / "publicada"
+        publicada.mkdir()
+        (publicada / "index.html").write_text(f"<html>Vol. {volumen}</html>", encoding="utf-8")
+        (publicada / f"boletin-vol-{volumen}.pdf").write_bytes(b"%PDF-falso")
+    return carpeta
+
+
 def leer_datos(carpeta: Path) -> dict:
     """El TOML de una edición como diccionario, para modificarlo en las pruebas."""
     with (carpeta / "edicion.toml").open("rb") as f:

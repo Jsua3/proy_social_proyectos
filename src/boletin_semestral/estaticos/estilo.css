@@ -167,6 +167,19 @@ figcaption { margin-top: .35rem; font-size: .78rem; color: var(--texto-suave); }
   background: var(--azul); color: #fff; text-decoration: none; font-weight: 600; font-size: .9rem;
 }
 
+/* ---------- Índice de la sección /semestral/ ---------- */
+.volver { display: inline-block; margin-bottom: 18px; font-size: .85rem; color: var(--azul); text-decoration: none; }
+.indice__intro { color: var(--texto-suave); max-width: 46ch; }
+.acciones { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+.boton--claro { background: #e8eef6; color: var(--azul); }
+.archivo { margin-top: 12px; border-top: 1px solid var(--linea); }
+.archivo a {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 14px 0; border-bottom: 1px solid var(--linea);
+  color: var(--texto); text-decoration: none;
+}
+.archivo__vol { font-weight: 700; color: var(--azul); }
+
 /* ---------- Imagen a página completa ---------- */
 .imagen-completa img { width: 100%; height: auto; border-radius: 4px; }
 

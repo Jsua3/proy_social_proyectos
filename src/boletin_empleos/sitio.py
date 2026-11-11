@@ -35,6 +35,8 @@ from boletin_empleos.render.web import (
     UNIDAD,
     pagina,
 )
+from boletin_semestral.sitio import EdicionPublicada
+from boletin_semestral.sitio import publicar as publicar_semestral
 
 _log = logging.getLogger(__name__)
 
@@ -76,8 +78,14 @@ def programas_desde(carpeta: Path, datos: Path) -> list[ProgramaSitio]:
     return programas
 
 
-def construir_sitio(programas: list[ProgramaSitio], destino: Path) -> dict[str, list[date]]:
-    """Publica el sitio entero. Devuelve, por carrera, las ediciones publicadas."""
+def construir_sitio(
+    programas: list[ProgramaSitio], destino: Path, semestral: Path | None = None
+) -> dict[str, list[date]]:
+    """Publica el sitio entero. Devuelve, por carrera, las ediciones publicadas.
+
+    Si existe la carpeta del boletín semestral, también publica su sección: los dos
+    flujos que despliegan el sitio pasan por aquí, y el que la omitiera la borraría.
+    """
     destino = Path(destino)
     destino.mkdir(parents=True, exist_ok=True)
 
@@ -92,7 +100,11 @@ def construir_sitio(programas: list[ProgramaSitio], destino: Path) -> dict[str, 
         publicadas[programa.clave] = fechas
         resumen.append((programa, fechas))
 
-    (destino / "index.html").write_text(_portada(resumen), encoding="utf-8")
+    del_semestral = None
+    if semestral is not None and Path(semestral).is_dir():
+        del_semestral = publicar_semestral(semestral, destino / "semestral")
+
+    (destino / "index.html").write_text(_portada(resumen, del_semestral), encoding="utf-8")
     _log.info(
         "sitio construido en %s con %d carreras y %d ediciones",
         destino,
@@ -215,7 +227,10 @@ def _indice(
     )
 
 
-def _portada(resumen: list[tuple[ProgramaSitio, list[date]]]) -> str:
+def _portada(
+    resumen: list[tuple[ProgramaSitio, list[date]]],
+    semestral: list[EdicionPublicada] | None = None,
+) -> str:
     tarjetas = []
     for programa, fechas in resumen:
         if fechas:
@@ -243,7 +258,7 @@ def _portada(resumen: list[tuple[ProgramaSitio, list[date]]]) -> str:
 {lista}
     </ul>
   </section>
-
+{_tarjeta_semestral(semestral)}
 {_pie_comun()}"""
 
     return pagina(
@@ -254,6 +269,29 @@ def _portada(resumen: list[tuple[ProgramaSitio, list[date]]]) -> str:
         ),
         cuerpo=cuerpo,
     )
+
+
+def _tarjeta_semestral(semestral: list[EdicionPublicada] | None) -> str:
+    """La entrada al boletín semestral. Sin su carpeta de datos, la portada no cambia."""
+    if semestral is None:
+        return ""
+    if semestral:
+        detalle = f"Vol. {semestral[0].volumen} · {semestral[0].fecha}"
+    else:
+        detalle = "Proyección Social EN ACCIÓN"
+    return f"""
+  <section class="seccion aparece">
+    <ul class="ediciones">
+      <li><a class="edicion" href="semestral/index.html">
+        <span>
+          <span class="edicion__fecha">Boletín semestral</span><br>
+          <span class="edicion__detalle">{escape(detalle)}</span>
+        </span>
+        <span class="edicion__flecha" aria-hidden="true">›</span>
+      </a></li>
+    </ul>
+  </section>
+"""
 
 
 def _pie_comun() -> str:
@@ -280,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
         _log.error("no se encontró ninguna carrera en %s", args.programas)
         return 1
 
-    publicadas = construir_sitio(programas, args.destino)
+    publicadas = construir_sitio(programas, args.destino, semestral=args.datos / "semestral")
     for clave, fechas in publicadas.items():
         _log.info("%s: %d ediciones", clave, len(fechas))
     return 0

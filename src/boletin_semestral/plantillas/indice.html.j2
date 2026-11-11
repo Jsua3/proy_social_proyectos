@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#143D68">
+<title>Proyección Social EN ACCIÓN · Boletín semestral</title>
+<meta name="description" content="Boletín semestral de proyección social de la Facultad de Ingenierías y Ciencias Básicas de la {{ institucion }}.">
+<link rel="icon" href="logo-humboldt.png">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<main class="boletin">
+<section class="pagina indice">
+  <a class="volver" href="../index.html">‹ Boletines de Proyección Social</a>
+  <p class="antetitulo antetitulo--azul">Boletín semestral</p>
+  <h1 class="marca"><span class="marca__pro">Proyección</span> <span class="marca__soc">Social</span> <span class="marca__acc">en acción</span></h1>
+  <span class="regla"></span>
+  <p class="indice__intro">Lo que hizo cada semestre la Facultad de Ingenierías y Ciencias Básicas en proyección social.</p>
+</section>
+{% if ultima %}
+<section class="pagina">
+  <p class="antetitulo">Vol. {{ ultima.volumen }} · {{ ultima.fecha }}</p>
+  <h2 class="titulo">{{ ultima.titular }}</h2>
+  <div class="acciones">
+    <a class="boton" href="vol-{{ ultima.volumen }}/index.html">Leer en línea</a>
+    <a class="boton boton--claro" href="vol-{{ ultima.volumen }}/{{ ultima.pdf }}" download>Descargar PDF</a>
+  </div>
+</section>
+{% endif %}
+{% if otras or anteriores %}
+<section class="pagina">
+  <h2 class="antetitulo">Ediciones anteriores</h2>
+  <ul class="archivo">
+{% for edicion in otras %}
+    <li><a href="vol-{{ edicion.volumen }}/index.html"><span class="archivo__vol">Vol. {{ edicion.volumen }}</span><span>{{ edicion.fecha }}</span></a></li>
+{% endfor %}
+{% for anterior in anteriores %}
+    <li><a href="{{ anterior.enlace }}" target="_blank" rel="noopener"><span class="archivo__vol">Vol. {{ anterior.volumen }}</span><span>{{ anterior.fecha }}</span></a></li>
+{% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% if not ultima and not anteriores %}
+<section class="pagina">
+  <p>Todavía no hay ediciones publicadas.</p>
+</section>
+{% endif %}
+</main>
+</body>
+</html>

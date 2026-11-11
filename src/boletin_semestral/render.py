@@ -103,6 +103,11 @@ def renderizar(edicion: Edicion, modo: Modo) -> str:
     )
 
 
+def renderizar_plantilla(nombre: str, **contexto) -> str:
+    """Renderiza otra plantilla del paquete (el índice del sitio) con los mismos filtros."""
+    return _ENTORNO.get_template(nombre).render(institucion=INSTITUCION, unidad=UNIDAD, **contexto)
+
+
 def copiar_estaticos(destino: Path) -> None:
     """Deja junto al HTML la hoja de estilos, el script, las fuentes y el escudo."""
     destino = Path(destino)
