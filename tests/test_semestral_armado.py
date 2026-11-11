@@ -93,6 +93,51 @@ def test_solo_se_copian_las_fotos_nombradas(carpeta_edicion, tmp_path):
     assert not (tmp_path / "salida" / "2026-2" / "fotos" / "extra.jpg").exists()
 
 
+def _pdf_que_falla(html, destino):
+    raise ChromiumAusente("Instálalo con: uv run playwright install chromium")
+
+
+def test_si_falla_el_pdf_no_queda_publicada_a_medias(carpeta_edicion, tmp_path):
+    _aprobar(carpeta_edicion)
+
+    with pytest.raises(ChromiumAusente):
+        armar(carpeta_edicion, tmp_path / "salida", generar=_pdf_que_falla)
+
+    assert not (carpeta_edicion / "publicada").exists()
+    assert {p.name for p in carpeta_edicion.iterdir()} == {"edicion.toml", "fotos"}
+
+
+def test_si_falla_el_pdf_la_publicada_anterior_queda_intacta(carpeta_edicion, tmp_path):
+    _aprobar(carpeta_edicion)
+    armar(carpeta_edicion, tmp_path / "salida", generar=generar_falso)
+
+    with pytest.raises(ChromiumAusente):
+        armar(carpeta_edicion, tmp_path / "salida", generar=_pdf_que_falla)
+
+    assert (carpeta_edicion / "publicada" / "index.html").is_file()
+    assert (carpeta_edicion / "publicada" / "boletin-vol-8.pdf").is_file()
+
+
+def test_pdf_abierto_da_un_mensaje_claro(monkeypatch, carpeta_edicion, tmp_path):
+    armar(carpeta_edicion, tmp_path / "salida", generar=generar_falso)
+
+    # En Windows, un PDF abierto en un visor impide mover o borrar su carpeta.
+    def bloqueado(self, destino):
+        raise PermissionError(13, "El proceso no tiene acceso al archivo", str(self))
+
+    monkeypatch.setattr(armado.Path, "rename", bloqueado)
+
+    with pytest.raises(ErrorEdicion, match="PDF"):
+        armar(carpeta_edicion, tmp_path / "salida", generar=generar_falso)
+
+
+def test_foto_ilegible_dice_cual_es(carpeta_edicion, tmp_path):
+    (carpeta_edicion / "fotos" / "taller.jpg").write_bytes(b"esto no es una imagen")
+
+    with pytest.raises(ErrorEdicion, match="taller.jpg"):
+        armar(carpeta_edicion, tmp_path / "salida", generar=generar_falso)
+
+
 def _argumentos(carpeta_edicion, tmp_path) -> list[str]:
     return ["armar", "2026-2", "--datos", str(carpeta_edicion.parent), "--salida", str(tmp_path)]
 

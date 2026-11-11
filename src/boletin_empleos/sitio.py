@@ -102,7 +102,11 @@ def construir_sitio(
 
     del_semestral = None
     if semestral is not None and Path(semestral).is_dir():
-        del_semestral = publicar_semestral(semestral, destino / "semestral")
+        # Un problema del boletín semestral no puede dejar sin sitio al de empleos.
+        try:
+            del_semestral = publicar_semestral(semestral, destino / "semestral")
+        except Exception:
+            _log.exception("no se pudo publicar el boletín semestral; el resto del sitio sigue")
 
     (destino / "index.html").write_text(_portada(resumen, del_semestral), encoding="utf-8")
     _log.info(

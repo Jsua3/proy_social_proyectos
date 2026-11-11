@@ -51,17 +51,22 @@ def publicadas(base: Path) -> list[EdicionPublicada]:
             if datos.get("estado") != Estado.APROBADA:
                 continue
             volumen = int(datos["volumen"])
+            pdf = f"boletin-vol-{volumen}.pdf"
+            # Sin su PDF, la edición quedó a medias: el botón «Descargar PDF» daría 404.
+            if not (publicada / pdf).is_file():
+                _log.warning("a %s le falta %s; no se publica", publicada, pdf)
+                continue
             lista.append(
                 EdicionPublicada(
                     volumen=volumen,
                     semestre=str(datos["semestre"]),
                     fecha=str(datos["fecha"]),
-                    titular=str(datos.get("portada", {}).get("titular", "")),
+                    titular=str(datos["portada"]["titular"]),
                     carpeta=publicada,
-                    pdf=f"boletin-vol-{volumen}.pdf",
+                    pdf=pdf,
                 )
             )
-        except (tomllib.TOMLDecodeError, KeyError, TypeError, ValueError) as e:
+        except Exception as e:
             _log.warning("edición semestral ilegible en %s (%s); no se publica", carpeta, e)
     return sorted(lista, key=lambda e: e.volumen, reverse=True)
 

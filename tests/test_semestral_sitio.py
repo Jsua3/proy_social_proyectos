@@ -66,5 +66,22 @@ def test_indice_sin_nada(tmp_path):
     assert "Todavía no hay ediciones publicadas." in (destino / "index.html").read_text("utf-8")
 
 
+def test_sin_pdf_no_se_publica(tmp_path):
+    carpeta = edicion_publicada(tmp_path, "2026-2", 8)
+    (carpeta / "publicada" / "boletin-vol-8.pdf").unlink()
+
+    assert publicadas(tmp_path) == []
+
+
+def test_una_edicion_malformada_no_rompe_la_lista(tmp_path):
+    carpeta = edicion_publicada(tmp_path, "2026-2", 8)
+    archivo = carpeta / "edicion.toml"
+    texto = archivo.read_text(encoding="utf-8").replace("[portada]\n", "[otra]\n")
+    archivo.write_text(texto + 'portada = "x"\n', encoding="utf-8")
+    edicion_publicada(tmp_path, "2027-1", 9)
+
+    assert [e.volumen for e in publicadas(tmp_path)] == [9]
+
+
 def test_anteriores_ausente_es_lista_vacia(tmp_path):
     assert anteriores(tmp_path) == []

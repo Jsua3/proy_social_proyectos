@@ -160,9 +160,21 @@ def _leer_toml(archivo: Path) -> dict:
             return tomllib.load(f)
     except FileNotFoundError:
         raise ErrorEdicion(f"No existe {archivo}.") from None
+    except UnicodeDecodeError:
+        raise ErrorEdicion(
+            f"{archivo.name} no está guardado como UTF-8. Ábrelo en tu editor y guárdalo con la "
+            "codificación UTF-8 (en el Bloc de notas: Guardar como → Codificación: UTF-8)."
+        ) from None
     except tomllib.TOMLDecodeError as e:
         linea = re.search(r"line (\d+)", str(e))
-        donde = f"línea {linea.group(1)}" if linea else "posición desconocida"
+        if linea:
+            donde = f"línea {linea.group(1)}"
+        elif "end of document" in str(e):
+            # Un error al final del archivo (una comilla sin cerrar) no trae número de línea.
+            ultima = archivo.read_text(encoding="utf-8", errors="replace").count("\n") + 1
+            donde = f"línea {ultima}"
+        else:
+            donde = "posición desconocida"
         raise ErrorEdicion(f"{archivo.name}, {donde}: no es un TOML válido ({e}).") from None
 
 

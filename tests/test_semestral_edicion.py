@@ -45,6 +45,23 @@ def test_toml_roto_dice_la_linea(carpeta_edicion):
         cargar(carpeta_edicion)
 
 
+def test_comilla_sin_cerrar_al_final_dice_la_linea(carpeta_edicion):
+    archivo = carpeta_edicion / "edicion.toml"
+    texto = EDICION_COMPLETA + 'extra = "sin cerrar'
+    archivo.write_text(texto, encoding="utf-8")
+    ultima = texto.count("\n") + 1
+
+    with pytest.raises(ErrorEdicion, match=f"línea {ultima}"):
+        cargar(carpeta_edicion)
+
+
+def test_toml_que_no_es_utf8_pide_guardarlo_asi(carpeta_edicion):
+    (carpeta_edicion / "edicion.toml").write_bytes(EDICION_COMPLETA.encode("cp1252"))
+
+    with pytest.raises(ErrorEdicion, match="UTF-8"):
+        cargar(carpeta_edicion)
+
+
 def test_error_de_validacion_nombra_seccion_campo_y_valor(carpeta_edicion):
     _reescribir(carpeta_edicion, "actual = 100.0", "actual = 101.0")
 

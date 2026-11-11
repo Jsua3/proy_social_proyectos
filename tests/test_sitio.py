@@ -266,6 +266,22 @@ def test_la_portada_enlaza_al_boletin_semestral(tmp_path):
     assert (tmp_path / "sitio" / "semestral" / "vol-8" / "index.html").is_file()
 
 
+def test_si_falla_el_semestral_el_sitio_de_empleos_igual_se_publica(monkeypatch, tmp_path):
+    import boletin_empleos.sitio as sitio
+
+    def explotar(base, destino):
+        raise RuntimeError("edición semestral rota")
+
+    monkeypatch.setattr(sitio, "publicar_semestral", explotar)
+    programas = [_carrera(tmp_path, "software", "Ingeniería de Software", {})]
+    (tmp_path / "semestral").mkdir()
+
+    construir_sitio(programas, tmp_path / "sitio", semestral=tmp_path / "semestral")
+
+    assert (tmp_path / "sitio" / "index.html").is_file()
+    assert (tmp_path / "sitio" / "software" / "index.html").is_file()
+
+
 def test_sin_carpeta_semestral_el_sitio_queda_igual(tmp_path):
     programas = [_carrera(tmp_path, "software", "Ingeniería de Software", {})]
 
