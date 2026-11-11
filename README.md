@@ -209,6 +209,21 @@ prueba que verifica esa pureza y falla si alguien mete una llamada de red en el 
 
 Diseño completo: `docs/superpowers/specs/2026-09-09-boletin-empleos-design.md`
 
+## Boletín semestral
+
+El mismo repositorio arma el boletín semestral **"Proyección Social EN ACCIÓN"** de la Facultad. Cada
+edición es un archivo de texto (`datos/semestral/<semestre>/edicion.toml`) del que salen la página
+web, publicada en `/semestral/` del sitio, y el PDF que se sube a Heyzine. Solo se publican las
+ediciones aprobadas.
+
+```bash
+uv run semestral nueva 2026-2      # crea la edición con la estructura de la anterior
+uv run semestral armar 2026-2      # vista previa (borrador) o edición publicada (aprobada)
+```
+
+Paso a paso para monitores y Coordinación: [`docs/manual-boletin-semestral.md`](docs/manual-boletin-semestral.md).
+Diseño: `docs/superpowers/specs/2026-11-11-boletin-semestral-design.md`
+
 ## Lo que falta
 
 - Generar el boletín desde muestras guardadas, sin red (`--desde`), para demostrarlo sin internet.
