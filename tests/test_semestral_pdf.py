@@ -1,4 +1,4 @@
-"""El PDF sale del mismo HTML impreso con Chromium; sin Chromium, el mensaje dice cómo instalarlo."""
+"""El PDF sale del mismo HTML impreso con Chromium; sin Chromium, dice cómo instalarlo."""
 
 import shutil
 from contextlib import contextmanager
