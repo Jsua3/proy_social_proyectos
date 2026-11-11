@@ -87,6 +87,15 @@ def test_proyectos_sin_fotos_no_dibujan_huecos(carpeta_edicion):
     assert html.css_first(".proyectos--sin-fotos") is not None
 
 
+def test_comparativo_sin_datos_no_dibuja_leyenda(carpeta_edicion):
+    def sin_grupos(datos):
+        datos["secciones"][3]["grupos"] = []
+
+    html = HTMLParser(renderizar(_edicion_con(carpeta_edicion, sin_grupos), Modo.BORRADOR))
+
+    assert html.css(".seccion--comparativo .leyenda") == []
+
+
 def test_manuscrita_escapa_y_marca():
     assert str(manuscrita("<b>*hola*</b>")) == '&lt;b&gt;<em class="manuscrita">hola</em>&lt;/b&gt;'
 
