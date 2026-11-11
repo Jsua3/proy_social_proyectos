@@ -1,0 +1,78 @@
+# Edición del boletín semestral "Proyección Social EN ACCIÓN".
+# Llena cada sección con lo que manda la Coordinación y borra su línea `pendiente`
+# cuando esté completa. La palabra entre asteriscos de un título sale en letra
+# manuscrita roja. Instrucciones completas: docs/manual-boletin-semestral.md
+
+volumen = {volumen}
+semestre = "{semestre}"
+fecha = "{fecha}"
+estado = "borrador"
+
+[portada]
+titular = ""
+# foto = "portada.jpg"
+
+[editorial]
+titulo = "Construyendo *impacto* desde la academia"
+cuerpo = ""
+firma = "Coordinación de Proyección Social"
+
+[[secciones]]
+tipo = "cifras"
+etiqueta = "Cifras"
+titulo = "Proyección social en *cifras*"
+pendiente = "Faltan las cifras del semestre (personas sensibilizadas, emprendedores, participantes). Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "proyectos"
+etiqueta = "Comunidades"
+titulo = "Proyectos que *transforman*"
+pendiente = "Faltan los proyectos de proyección social en ejecución, con sus docentes y una foto de cada uno. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "texto"
+etiqueta = "Planeta"
+titulo = "Nuestro compromiso con el *planeta*"
+pendiente = "Falta el texto de las acciones ambientales del semestre y sus fotos. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "texto"
+etiqueta = "Monitores"
+titulo = "Monitores de *proyección social*"
+pendiente = "Faltan los nombres de los monitores, el texto de reconocimiento y sus fotos. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "imagen"
+etiqueta = "Sistema"
+titulo = "Sistema de *proyección social*"
+pendiente = "Falta la infografía del sistema de proyección social de la Facultad. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "comparativo"
+etiqueta = "Prácticas empresariales"
+titulo = "Indicadores de *prácticas*"
+pendiente = "Faltan los indicadores de prácticas de este semestre y del mismo semestre del año anterior, por programa. Pedir a: Coordinación de Prácticas Empresariales."
+
+[[secciones]]
+tipo = "proyectos"
+etiqueta = "Aprendizaje con impacto"
+titulo = "Proyectos *nucleares*"
+pendiente = "Faltan los proyectos nucleares del semestre y sus empresas aliadas. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "texto"
+etiqueta = "Egresados"
+titulo = "Vinculación de *egresados*"
+pendiente = "Falta cuántos egresados se vincularon con Team Teaching y en qué asignaturas. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "cifras"
+etiqueta = "Docentes"
+titulo = "Vinculación de *docentes*"
+pendiente = "Faltan los docentes vinculados por programa. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "videos"
+etiqueta = "Videos"
+titulo = "Videos de la *proyección social*"
+pendiente = "Faltan los enlaces de los videos del semestre. Pedir a: Coordinación de Proyección Social."
