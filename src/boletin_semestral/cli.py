@@ -1,11 +1,13 @@
 """Consola del boletín semestral: `semestral nueva`, `semestral armar` y `semestral borrador`."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from boletin_semestral.armado import armar
-from boletin_semestral.edicion import ErrorEdicion, nueva
+from boletin_semestral.borrador import Redactor, escribir_sugerencias
+from boletin_semestral.edicion import ErrorEdicion, cargar, nueva
 from boletin_semestral.pdf import ChromiumAusente
 
 DATOS = Path("datos/semestral")
@@ -32,10 +34,19 @@ def main(argv: list[str] | None = None) -> int:
     p_armar.add_argument("--datos", type=Path, default=DATOS)
     p_armar.add_argument("--salida", type=Path, default=SALIDA)
 
+    p_borrador = comandos.add_parser(
+        "borrador", help="Opcional: Claude propone textos a partir del correo de la Coordinación"
+    )
+    p_borrador.add_argument("semestre", help="AAAA-1 o AAAA-2, por ejemplo 2026-2")
+    p_borrador.add_argument("--correo", type=Path, required=True, help="Texto del correo (.txt)")
+    p_borrador.add_argument("--datos", type=Path, default=DATOS)
+
     args = parser.parse_args(argv)
     try:
         if args.comando == "nueva":
             return _nueva(args)
+        if args.comando == "borrador":
+            return _borrador(args)
         return _armar(args)
     except (ErrorEdicion, ChromiumAusente) as e:
         print(e, file=sys.stderr)
@@ -46,6 +57,33 @@ def _nueva(args: argparse.Namespace) -> int:
     carpeta = nueva(args.datos, args.semestre)
     print(f"Edición creada en {carpeta}.")
     print(f"Llena {carpeta / 'edicion.toml'} y copia las fotos en {carpeta / 'fotos'}.")
+    return 0
+
+
+def _borrador(args: argparse.Namespace) -> int:
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print(
+            "Falta ANTHROPIC_API_KEY; el resto del programa funciona sin este paso.",
+            file=sys.stderr,
+        )
+        return 1
+    if not args.correo.is_file():
+        print(f"No existe el archivo del correo: {args.correo}", file=sys.stderr)
+        return 1
+
+    carpeta = args.datos / args.semestre
+    sugerencias = Redactor().proponer(args.correo.read_text(encoding="utf-8"), cargar(carpeta))
+    if sugerencias is None:
+        print(
+            "No se pudo obtener una propuesta de Claude; el resto del programa funciona "
+            "sin este paso.",
+            file=sys.stderr,
+        )
+        return 1
+
+    destino = carpeta / "borrador-sugerido.toml"
+    escribir_sugerencias(sugerencias, destino)
+    print(f"Propuestas guardadas en {destino}. Copia a edicion.toml lo que sirva.")
     return 0
 
 
