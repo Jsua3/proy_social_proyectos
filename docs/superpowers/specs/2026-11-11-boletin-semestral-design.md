@@ -155,7 +155,7 @@ Cada `[[secciones]]` tiene estos campos comunes:
 | `tipo` | Campos propios | Uso en el Vol. 7 / Vol. 8 |
 |---|---|---|
 | `texto` | `cuerpo`; `fotos = [{ archivo, pie }]` (la primera va grande; hasta tres) | Planeta, Monitores, Emprendimiento, Egresados, Docentes |
-| `cifras` | `cifras = [{ valor, texto }]` (de 2 a 6) | Proyección social en cifras |
+| `cifras` | `cifras = [{ valor, texto }]` (de 2 a 6); `foto` opcional para la franja de abajo | Proyección social en cifras, Docentes vinculados |
 | `proyectos` | `proyectos = [{ nombre, docentes, programas, descripcion, foto }]` | Proyectos que transforman, Proyectos nucleares, Propuestas 2027 |
 | `comparativo` | `periodo_anterior`, `periodo_actual`, `meta`; `grupos = [{ nombre, indicadores = [{ nombre, anterior, actual }] }]` | Indicadores de prácticas empresariales |
 | `videos` | `videos = [{ titulo, enlace, miniatura }]` | Videos de la proyección social |
