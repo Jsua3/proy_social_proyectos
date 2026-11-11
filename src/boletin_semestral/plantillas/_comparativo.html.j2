@@ -1,0 +1,30 @@
+{% set c = s.seccion %}
+  <ul class="leyenda">
+    <li><i class="ant"></i>{{ c.periodo_anterior }}</li>
+    <li><i class="act"></i>{{ c.periodo_actual }}</li>
+{% if c.meta is not none %}
+    <li><i class="meta"></i>Meta ≥ {{ c.meta | porcentaje }}</li>
+{% endif %}
+  </ul>
+{% for grupo in c.grupos %}
+  <div class="grupo">
+    <h3 class="grupo__nombre">{{ grupo.nombre }}</h3>
+{% for indicador in grupo.indicadores %}
+    <div class="indicador">
+      <p class="indicador__nombre">{{ indicador.nombre }}</p>
+{% for periodo, valor, clase in [(c.periodo_anterior, indicador.anterior, 'ant'), (c.periodo_actual, indicador.actual, 'act')] %}
+      <div class="fila">
+        <span class="fila__periodo">{{ periodo }}</span>
+        <div class="barra">
+          <i class="barra__valor barra__valor--{{ clase }}" style="width: {{ valor }}%"></i>
+{% if c.meta is not none %}
+          <b class="barra__meta" style="left: {{ c.meta }}%"></b>
+{% endif %}
+        </div>
+        <span class="fila__valor">{{ valor | porcentaje }}</span>
+      </div>
+{% endfor %}
+    </div>
+{% endfor %}
+  </div>
+{% endfor %}

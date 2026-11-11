@@ -1,0 +1,22 @@
+  <ul class="proyectos">
+{% for proyecto in s.seccion.proyectos %}
+    <li class="proyecto">
+{% if proyecto.foto %}
+      <img src="fotos/{{ proyecto.foto }}" alt="">
+{% else %}
+      <span class="proyecto__sin-foto"></span>
+{% endif %}
+      <div>
+        <h3 class="proyecto__nombre">{{ proyecto.nombre }}</h3>
+{% set partes = proyecto.docentes | list %}
+{% if proyecto.programas %}{% set partes = partes + [proyecto.programas | join(' + ')] %}{% endif %}
+{% if partes %}
+        <p class="proyecto__meta">{{ partes | join(' · ') }}</p>
+{% endif %}
+{% if proyecto.descripcion %}
+        <p class="proyecto__desc">{{ proyecto.descripcion }}</p>
+{% endif %}
+      </div>
+    </li>
+{% endfor %}
+  </ul>

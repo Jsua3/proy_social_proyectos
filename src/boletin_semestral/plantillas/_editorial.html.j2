@@ -1,0 +1,14 @@
+<section class="pagina editorial">
+  <header class="encabezado">
+    <p class="antetitulo">Editorial</p>
+    <h2 class="titulo">{{ e.editorial.titulo | manuscrita }}</h2>
+    <span class="regla"></span>
+  </header>
+{% if borrador and pendiente_editorial %}
+{% with motivo=pendiente_editorial, falta_foto=false %}{% include "_pendiente.html.j2" %}{% endwith %}
+{% endif %}
+  <div class="cuerpo">{{ e.editorial.cuerpo | parrafos }}</div>
+{% if e.editorial.firma %}
+  <p class="firma">{{ e.editorial.firma }}</p>
+{% endif %}
+</section>

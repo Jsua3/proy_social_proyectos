@@ -1,0 +1,20 @@
+<section class="pagina portada">
+{% if e.portada.foto %}
+  <img class="portada__foto" src="fotos/{{ e.portada.foto }}" alt="">
+{% endif %}
+  <div class="portada__cuerpo">
+    <p class="antetitulo antetitulo--azul">Vol. {{ e.volumen }} · {{ e.fecha }}</p>
+    <h1 class="marca"><span class="marca__pro">Proyección</span> <span class="marca__soc">Social</span> <span class="marca__acc">en acción</span></h1>
+    <span class="regla"></span>
+{% if e.portada.titular %}
+    <p class="portada__titular">{{ e.portada.titular }}</p>
+{% endif %}
+{% if borrador and pendiente_portada %}
+{% with motivo=pendiente_portada, falta_foto=not e.portada.foto %}{% include "_pendiente.html.j2" %}{% endwith %}
+{% endif %}
+  </div>
+  <div class="portada__pie">
+    <img src="logo-humboldt.png" alt="{{ institucion }}">
+    <span>Facultad de Ingenierías y Ciencias Básicas · Coordinación de Proyección Social</span>
+  </div>
+</section>

@@ -195,6 +195,11 @@ def antetitulo(indice: int, seccion: _Seccion) -> str:
     return f"{indice + 1:02d} · {seccion.etiqueta}"
 
 
+def lugar_de(indice: int, seccion: _Seccion) -> str:
+    """Cómo se nombra una sección en la lista de pendientes."""
+    return f"{antetitulo(indice, seccion)} — {seccion.titulo}"
+
+
 def pendientes(edicion: Edicion) -> list[Pendiente]:
     """Lo que le falta a la edición, en el orden en que aparece en el boletín."""
     resultado = []
@@ -211,7 +216,7 @@ def pendientes(edicion: Edicion) -> list[Pendiente]:
         resultado.append(Pendiente("Editorial", "Falta el texto"))
 
     for indice, seccion in enumerate(edicion.secciones):
-        lugar = f"{antetitulo(indice, seccion)} — {seccion.titulo}"
+        lugar = lugar_de(indice, seccion)
         if seccion.pendiente:
             resultado.append(Pendiente(lugar, seccion.pendiente))
         elif not seccion.tiene_contenido():

@@ -1,0 +1,11 @@
+  <div class="cifras">
+{% for cifra in s.seccion.cifras %}
+    <div class="cifra">
+      <b class="cifra__valor">{{ cifra.valor }}</b>
+      <span class="cifra__texto">{{ cifra.texto }}</span>
+    </div>
+{% endfor %}
+  </div>
+{% if s.seccion.foto %}
+  <img class="franja" src="fotos/{{ s.seccion.foto }}" alt="">
+{% endif %}

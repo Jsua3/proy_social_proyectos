@@ -1,0 +1,22 @@
+{% set fotos = s.seccion.fotos %}
+{% if fotos %}
+  <figure class="foto-principal">
+    <img src="fotos/{{ fotos[0].archivo }}" alt="{{ fotos[0].pie }}">
+{% if fotos[0].pie %}
+    <figcaption>{{ fotos[0].pie }}</figcaption>
+{% endif %}
+  </figure>
+{% endif %}
+  <div class="cuerpo">{{ s.seccion.cuerpo | parrafos }}</div>
+{% if fotos | length > 1 %}
+  <div class="fotos-par">
+{% for foto in fotos[1:] %}
+    <figure>
+      <img src="fotos/{{ foto.archivo }}" alt="{{ foto.pie }}">
+{% if foto.pie %}
+      <figcaption>{{ foto.pie }}</figcaption>
+{% endif %}
+    </figure>
+{% endfor %}
+  </div>
+{% endif %}

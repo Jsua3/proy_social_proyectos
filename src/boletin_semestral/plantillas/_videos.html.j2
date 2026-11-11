@@ -1,0 +1,22 @@
+  <div class="videos">
+{% for video in s.seccion.videos %}
+    <article class="video">
+      <h3 class="video__titulo">{{ video.titulo }}</h3>
+      <div class="solo-pantalla">
+{% set id = video.enlace | id_youtube %}
+{% if id %}
+        <iframe src="https://www.youtube-nocookie.com/embed/{{ id }}" title="{{ video.titulo }}" loading="lazy" allow="encrypted-media; picture-in-picture" allowfullscreen></iframe>
+{% else %}
+        <a class="boton" href="{{ video.enlace }}" target="_blank" rel="noopener">Ver el video</a>
+{% endif %}
+      </div>
+      <div class="solo-impresion video__impreso">
+{% if video.miniatura %}
+        <img src="fotos/{{ video.miniatura }}" alt="">
+{% endif %}
+        <div class="video__qr">{{ video.enlace | qr }}</div>
+        <p class="video__enlace">{{ video.enlace }}</p>
+      </div>
+    </article>
+{% endfor %}
+  </div>

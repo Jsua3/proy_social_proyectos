@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#143D68">
+<title>Proyección Social EN ACCIÓN · Vol. {{ e.volumen }} · {{ e.fecha }}</title>
+<meta name="description" content="Boletín semestral de proyección social de la Facultad de Ingenierías y Ciencias Básicas de la {{ institucion }}. Vol. {{ e.volumen }}, {{ e.fecha }}.">
+<link rel="icon" href="logo-humboldt.png">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body{% if borrador %} class="borrador"{% endif %}>
+{% if borrador %}
+<div class="marca-borrador" aria-hidden="true">BORRADOR</div>
+{% endif %}
+<main class="boletin">
+{% include "_portada.html.j2" %}
+{% include "_editorial.html.j2" %}
+{% for s in secciones %}
+<section class="pagina seccion seccion--{{ s.seccion.tipo }}" data-titulo="{{ s.seccion.titulo | replace('*', '') }}">
+  <header class="encabezado">
+    <p class="antetitulo">{{ s.antetitulo }}</p>
+    <h2 class="titulo">{{ s.seccion.titulo | manuscrita }}</h2>
+    <span class="regla"></span>
+  </header>
+{% if borrador and s.pendiente %}
+{% with motivo=s.pendiente, falta_foto=s.falta_foto %}{% include "_pendiente.html.j2" %}{% endwith %}
+{% endif %}
+{% include "_" ~ s.seccion.tipo ~ ".html.j2" %}
+</section>
+{% endfor %}
+{% include "_contraportada.html.j2" %}
+</main>
+<script src="movimiento.js" defer></script>
+</body>
+</html>

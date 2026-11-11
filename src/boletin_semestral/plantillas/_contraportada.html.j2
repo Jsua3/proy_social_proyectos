@@ -1,0 +1,11 @@
+<section class="pagina contraportada">
+{% if e.contraportada.foto %}
+  <img class="contraportada__foto" src="fotos/{{ e.contraportada.foto }}" alt="">
+{% endif %}
+  <div class="contraportada__cuerpo">
+    <p class="marca"><span class="marca__pro">Proyección</span> <span class="marca__soc">Social</span></p>
+    <p class="contraportada__vol">Vol. {{ e.volumen }} · {{ e.fecha }}</p>
+    <img class="contraportada__logo" src="logo-humboldt.png" alt="{{ institucion }}">
+    <p class="contraportada__unidad">{{ unidad }}<br>{{ institucion }}</p>
+  </div>
+</section>
