@@ -1,0 +1,169 @@
+# Edición del boletín semestral "Proyección Social EN ACCIÓN".
+# Llena cada sección con lo que manda la Coordinación y borra su línea `pendiente`
+# cuando esté completa. La palabra entre asteriscos de un título sale en letra
+# manuscrita roja. Instrucciones completas: docs/manual-boletin-semestral.md
+#
+# Fuente del contenido: correo de la Coordinación de Proyección Social de Ingeniería
+# del 6 de noviembre de 2026 («📢ACTIVIDADES DE PROYECCIÓN SOCIAL FACULTAD DE
+# INGENIERÍAS Y CIENCIAS BÁSICAS»). Lo que el correo no trae quedó como pendiente.
+
+volumen = 8
+semestre = "2026-2"
+fecha = "Diciembre 2026"
+estado = "borrador"
+
+[portada]
+titular = ""
+foto = "siembra-2026.jpg"
+
+[editorial]
+titulo = "Construyendo *impacto* desde la academia"
+cuerpo = ""
+firma = "Coordinación de Proyección Social"
+
+[[secciones]]
+tipo = "cifras"
+etiqueta = "Cifras"
+titulo = "Proyección social en *cifras*"
+pendiente = "Confirmar con la Coordinación las cifras del semestre (personas sensibilizadas en talleres y eco cápsulas)."
+foto = "ecohumboldt-experiencias-significativas.jpg"
+cifras = [
+  { valor = "20", texto = "experiencias significativas del país en empoderamiento para la acción climática; Ecohumboldt es una de ellas (Ministerio de Educación e IDEAM)" },
+  { valor = "2.º", texto = "lugar de Ecohumboldt en la categoría Aulas que cuidan del premio Bibo de El Espectador" },
+  { valor = "4", texto = "emprendimientos de estudiantes acompañados en la ruta de emprendimiento" },
+  { valor = "4", texto = "proyectos postulados a la convocatoria de proyección social 2027" },
+]
+
+[[secciones]]
+tipo = "proyectos"
+etiqueta = "Comunidades"
+titulo = "Proyectos que *transforman*"
+pendiente = "Faltan una foto y una descripción corta de cada proyecto en ejecución. Pedir a: Coordinación de Proyección Social."
+
+[[secciones.proyectos]]
+nombre = "Huellas con Bienestar"
+docentes = ["Diana María Melo Taborda"]
+programas = ["Ingeniería de Software", "Medicina Veterinaria"]
+descripcion = "Proyecto de proyección social aprobado para la vigencia 2026, en ejecución."
+
+[[secciones.proyectos]]
+nombre = "Revalorización de Residuos para las Asociaciones de Recuperadores del Quindío"
+docentes = ["Mónica Vásquez", "Jhon Gil Morales"]
+descripcion = "Proyecto de proyección social aprobado para la vigencia 2026, en ejecución."
+
+[[secciones.proyectos]]
+nombre = "Articulación Ecohumboldt PRAE"
+docentes = ["Juan Sebastián Bustamante", "Mónica Vásquez"]
+descripcion = "En los colegios NUSEFA, Nuestra Señora de Belén, INEM, Gimnasio Contemporáneo y Bosques de Pinares."
+
+[[secciones]]
+tipo = "texto"
+etiqueta = "Planeta"
+titulo = "Nuestro compromiso con el *planeta*"
+cuerpo = """
+Estudiantes de Ingeniería Industrial e Ingeniería de Software participaron en la **VII jornada institucional de siembra de árboles**.
+
+El programa **Ecohumboldt** fue seleccionado por el Ministerio de Educación y el IDEAM como una de las **20 experiencias significativas** en empoderamiento para la acción climática. Es un reconocimiento a la trayectoria de proyectos como Ecohumboldt en tu colegio, el apoyo a las asociaciones de recicladores y el semillero de proyección social.
+
+Ecohumboldt ocupó además el **segundo lugar** en la categoría Aulas que cuidan del premio Bibo de El Espectador, entre las universidades participantes.
+
+Siguen en ejecución los talleres de huella de carbono con los estudiantes de primer semestre, en la asignatura Cátedra Alexander von Humboldt.
+
+En articulación con la empresa Urbaser se prepara la conferencia «Más allá de los residuos», en la que empresarios del departamento podrán descubrir oportunidades dentro de su cadena de abastecimiento para mejorar sus prácticas ambientales y tener modelos productivos más sostenibles.
+"""
+fotos = [
+  { archivo = "taller-huella-carbono.jpg", pie = "Taller de huella de carbono en la Cátedra Alexander von Humboldt" },
+  { archivo = "ecohumboldt-experiencias-significativas.jpg", pie = "Ecohumboldt entre las 20 experiencias significativas (MinEducación e IDEAM)" },
+  { archivo = "premio-bibo.jpg", pie = "Reconocimiento Bibo 2026 de El Espectador" },
+]
+
+[[secciones]]
+tipo = "texto"
+etiqueta = "Emprendimiento"
+titulo = "Ruta de *emprendimiento*"
+cuerpo = """
+A través de la ruta de emprendimiento se acompañaron **4 emprendimientos** de estudiantes de diferentes facultades, mientras continúan las charlas de sensibilización y de fomento al emprendimiento.
+
+Junto con la Facultad de Ciencias Administrativas se celebró el **Encuentro de Cultura Emprendedora**, con una jornada académica y otra de exposiciones. Nuestras emprendedoras, la docente Diana Melo y la coordinadora del programa de Ingeniería Industrial y Civil fueron ganadoras del **premio Humboldt Emprende**.
+
+También se participó en la lúdica «Construye tu ciudad inteligente» en el Colegio CASD, en articulación con la Facultad de Ciencias Administrativas.
+"""
+fotos = [
+  { archivo = "encuentro-cultura-emprendedora.jpg", pie = "Encuentro de Cultura Emprendedora" },
+  { archivo = "ludica-casd.jpg", pie = "Lúdica «Construye tu ciudad inteligente» en el Colegio CASD" },
+  { archivo = "charla-emprendimiento.jpg", pie = "Charla «No necesitas empezar de cero»" },
+]
+
+[[secciones]]
+tipo = "texto"
+etiqueta = "Monitores"
+titulo = "Monitores de *proyección social*"
+cuerpo = """
+Hacemos un reconocimiento especial a nuestros monitores de proyección social, quienes han sido parte fundamental de los proyectos y actividades del área, aportando su creatividad e ingenio en el diseño de soluciones que han contribuido de manera significativa a la mejora del proceso.
+
+Monitores del semestre: **Sebastián Ordoñez** (Ingeniería de Software), **Santiago Rojas Zabala** (Ingeniería Industrial) y **Juan José Sua Gómez** (Ingeniería de Software).
+"""
+fotos = [
+  { archivo = "monitores.png", pie = "" },
+]
+
+[[secciones]]
+tipo = "imagen"
+etiqueta = "Sistema"
+titulo = "Sistema de *proyección social*"
+pendiente = "Falta la infografía del sistema de proyección social de la Facultad. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "comparativo"
+etiqueta = "Prácticas empresariales"
+titulo = "Indicadores de *prácticas*"
+pendiente = "Faltan los indicadores de prácticas de 2026-2 y de 2025-2, por programa. Pedir a: Coordinación de Prácticas Empresariales."
+
+[[secciones]]
+tipo = "proyectos"
+etiqueta = "Aprendizaje con impacto"
+titulo = "Proyectos *nucleares*"
+pendiente = "Faltan los proyectos nucleares del semestre y sus empresas aliadas. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "proyectos"
+etiqueta = "Propuestas 2027"
+titulo = "Proyectos para *2027*"
+
+[[secciones.proyectos]]
+nombre = "Más allá del grano, Café con Valor"
+docentes = ["Andrea Gómez Escudero"]
+descripcion = "Postulado a la convocatoria de proyectos de proyección social, vigencia 2027."
+
+[[secciones.proyectos]]
+nombre = "Emplemetrix: ecosistema de empleabilidad e impacto de egresados"
+docentes = ["Arle Morales Ortiz"]
+descripcion = "Postulado a la convocatoria de proyectos de proyección social, vigencia 2027."
+
+[[secciones.proyectos]]
+nombre = "Fortalecimiento organizativo y digitalización de la economía popular del Quindío"
+docentes = ["Jhon Gil Morales"]
+descripcion = "Postulado a la convocatoria de proyectos de proyección social, vigencia 2027."
+
+[[secciones.proyectos]]
+nombre = "Articulación de PRAE con biodiversidad y avifauna en 4 colegios del Quindío"
+docentes = ["Juan Sebastián Bustamante"]
+descripcion = "Postulado a la convocatoria de proyectos de proyección social, vigencia 2027."
+
+[[secciones]]
+tipo = "texto"
+etiqueta = "Egresados"
+titulo = "Vinculación de *egresados*"
+pendiente = "Falta cuántos egresados se vincularon con Team Teaching en 2026-2 y en qué asignaturas. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "cifras"
+etiqueta = "Docentes"
+titulo = "Vinculación de *docentes*"
+pendiente = "Faltan los docentes vinculados por programa. Pedir a: Coordinación de Proyección Social."
+
+[[secciones]]
+tipo = "videos"
+etiqueta = "Videos"
+titulo = "Videos de la *proyección social*"
+pendiente = "Faltan los enlaces de los videos del semestre. Pedir a: Coordinación de Proyección Social."
